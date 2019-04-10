@@ -1,0 +1,208 @@
+---
+title: "fierer_grasslands"
+author: "Max based on Roey"
+date: "2. April 2016"
+output: html_document
+---
+
+# prepare fierer dataset for community analysis
+##fierer samples were sequenced, resequequend by Max on 2 MiSeq runs. Both have been resequenced by Microsynth because of less reads than promissed. resequenced samples need to combined and the taxonomy need to be added.
+
+## set working directory
+```{r}
+# setwd("C:/Users/Max/Desktop/DoME-Data/MiSeq/MiSeq_fierer_grasslands/MiSeq_combined_Nepel_fierer_grasslands_220716_Thomas/dataSetList.txt.nifH.0.03.OTU")
+setwd("\\\\share4.univie.ac.at/DOME/staff/nepel/MiSeq/Fierer_grasslands_MiSeq/MiSeq_combined_Nepel_fierer_grasslands_220716_Thomas/fierer_foR_manuscript/")
+# setwd("Y:/staff/nepel/MiSeq/Fierer_grasslands_MiSeq/MiSeq_combined_Nepel_fierer_grasslands_220716_Thomas/fierer_foR_manuscript/")
+```
+
+## test: load original file and rename by gsub(), but easier to sort and rename in excel "otuCountTable_RenameSortForPrep" 
+...hidden...
+```{r, echo=FALSE}
+# gras.orig <- read.table("orig_files/otuCountTable_RenameSortForPrep.txt", sep="\t", head=TRUE)
+
+# OTU.file <- "orig_files/otuCountTable.txt"
+# 
+# headers <- read.table(OTU.file, header = F, nrow = 1)
+# headers1  <- as.matrix(headers)
+# 
+# # headers2  <- apply(headers, 1, function(x) gsub("SAMPLE\\....","",x))
+# headers5  <- apply(headers, 1, function(x) gsub("CONCATENATED[:.:].","blub",x))
+# 
+# headers6  <- apply(headers, 1, function(x) gsub("CONCATENATED[:.:]\\d\\d","blub",x))
+# headers7  <- apply(headers, 1, function(x) gsub("CONCATENATED[:.:]\\d\\d\\d[:.:]SAMPLE[:.:]","",x))
+# headers8  <- apply(headers7, 1, function(x) gsub("\\d\\d\\d[:.:]","",x))
+# 
+# 
+# headers3  <- apply(headers, 1, function(x) gsub("CONCATENATED\\.....","",x))
+# headers4  <- apply(headers3, 1, function(x) gsub("SAMPLE\\.....","",x))
+# 
+# read.table(OTU.file, header = F, row.names = 1, skip = 1, colClasses = c("character", rep("integer", 163), rep("NULL", 12))) %>% 
+#   as.matrix(.) %>%
+#   t(.) -> OTU.mat
+# rownames(OTU.mat) <- headers[2:164]
+```
+
+## load renamed & sorted otuCountTable
+```{r}
+### merging Microsynth resequencing
+gras <- read.table("orig_files/otuCountTable_RenameSortForPrep.txt", sep="\t", head=TRUE)
+#read.table("to_merge_1226.txt", sep="\t", head=TRUE)
+```
+
+## to merge Microsynth resequencing as every sequenced sample is present in duplicates (samples are already sorted in excel)
+```{r}
+dim(gras)
+ID  <-  gras[1]
+newcol <- NULL
+for (n in seq(2,ncol(gras), by = 2)) {
+  newcol <- gras[n] + gras[n+1]
+  ID <- cbind(ID,newcol)
+}
+dim(ID)
+gras_merged_614 <- as.data.frame(ID)
+
+save(gras_merged_614, file = "prep.otuCountTable/gras_merged_614.Robj")
+write.table(gras_merged_614, paste("prep.otuCountTable/txt_saves/gras_merged_614",Sys.Date(),"txt",sep = "."), sep="\t", row.names=FALSE)
+```
+
+## to merge my resequencing (if not enough nifH reads)
+### define and exclude samples which were not resequenced
+```{r}
+rownames(gras_merged_614) <- gras_merged_614[,1]
+gras_toMerge_613 <- gras_merged_614[,-1]
+
+reseq <- gras_toMerge_613[, grep(".reseq", colnames(gras_toMerge_613)) ]
+low <- gras_toMerge_613[, grep(".low", colnames(gras_toMerge_613)) ]
+NOTreseq <- gras_toMerge_613[, -grep(".reseq", colnames(gras_toMerge_613)) ]
+NOTreseq <- NOTreseq[, -grep(".low", colnames(NOTreseq)) ]
+dim(reseq)
+dim(low)
+dim(NOTreseq)
+
+save(NOTreseq, file = "prep.otuCountTable/NOTreseq.Robj")
+write.table(NOTreseq, paste("prep.otuCountTable/txt_saves/NOTreseq_187",Sys.Date(),"txt",sep = "."), sep="\t", row.names=FALSE)
+```
+
+### merge resequenced samples
+```{r}
+toMerge <- cbind(reseq,low)
+toMergeSort <- toMerge[ , order(names(toMerge))]
+
+head(colnames(toMerge))
+head(colnames(toMergeSort))
+
+# ### merging my resequencing
+# 
+# gras426<-read.table("to_merge_426.txt", sep="\t", head=TRUE)
+
+# toMergeSort$names <- row.names(toMergeSort)
+dim(toMergeSort)
+ID  <-  row.names(toMergeSort)
+newcol <- NULL
+for (n in seq(2,ncol(toMergeSort), by = 2)) {
+  newcol <- toMergeSort[n-1] + toMergeSort[n]
+  ID <- cbind(ID,newcol)
+}
+dim(ID)
+gras_merged_213 <- as.data.frame(ID)
+
+save(gras_merged_213, file = "prep.otuCountTable/gras_merged_213.Robj")
+write.table(gras_merged_213, paste("prep.otuCountTable/txt_saves/gras_merged_213",Sys.Date(),"txt",sep = "."), sep="\t", row.names=FALSE)
+```
+
+### cbind and renaming all samples to the total dataset of 400 samples
+```{r}
+gras.total <- cbind(NOTreseq,gras_merged_213[,-1])
+gras.total.sort <- gras.total[ , order(names(gras.total))]
+dim(gras.total.sort)
+head(colnames(gras.total))
+head(colnames(gras.total.sort))
+OTU_names <- gras_merged_213[,1]
+gras.total.sort.ID <- cbind(OTU_names,gras.total.sort)
+head(colnames(gras.total.sort.ID))
+
+names <- colnames(gras.total.sort.ID)
+class(names)
+names.mat0 <- as.matrix(names)
+names.mat1  <- apply(names.mat0, 1, function(x) gsub(".orig.low",".reseq.total",x)) # samples need to be resequenced 
+names.mat2  <- apply(as.matrix(names.mat1), 1, function(x) gsub(".orig",".orig.total",x)) # samples not needed to be resequenced
+head(names.mat2)
+class(names.mat2)
+# write.table(names.mat2, "prep.otuCountTable/txt_saves/gras.total.sort.400.namesOnly_1902.txt", sep="\t", row.names=FALSE)
+
+colnames(gras.total.sort.ID) <- names.mat2
+complete.gras.total.sort.400 <- gras.total.sort.ID
+save(complete.gras.total.sort.400, file = "prep.otuCountTable/complete.gras.total.sort.400.Robj")
+write.table(complete.gras.total.sort.400, paste("prep.otuCountTable/txt_saves/complete.gras.total.sort.400",Sys.Date(),"txt",sep = "."), sep="\t", row.names=FALSE)
+```
+
+##getting the taxonomy from Genbank --> script v2_NCBI_Taxonomy_nifH_MN.R
+
+##adding nifH taxonomy to final total otuCountTable
+```{r}
+tax <- read.table("prep.otuCountTable/Taxa.table.analysis.final.editMN.txt", sep="\t", head=TRUE)
+tax1 <- tax[,-c(2:6,13)]
+tax1$OTU_names
+
+load(file = "prep.otuCountTable/complete.gras.total.sort.400.Robj") # rerun whole script if this R object can not be found
+
+complete.gras.total.sort.400$OTU_names
+
+final.tax <- merge(complete.gras.total.sort.400,tax1, by="OTU_names")
+dim(final.tax)
+tail(final.tax)
+head(final.tax)
+
+save(final.tax, file = "prep.otuCountTable/final.tax.gras.total.400.Robj")
+write.table(final.tax, paste("prep.otuCountTable/txt_saves/final.tax.gras.total.400",Sys.Date(),"txt",sep = "."), sep="\t", row.names=FALSE)
+```
+
+### test saving Robjects
+...hidden...
+```{r, echo=false}
+## working chunk!
+###check if final.tax.gras.400.Robj is present, if not, run chunk and create it, if the object exists, then do not run chunk and write "done"
+# possibleError <- tryCatch(load(file = "prep.otuCountTable/final.tax.gras.total.400.Robj"), error = function(e) e)
+# 
+# if (inherits(possibleError, 'error')) {# no file found, calculate ...!
+#  tax <- read.table("prep.otuCountTable/Taxa.table.analysis.final.editMN.txt", sep="\t", head=TRUE)
+# tax1 <- tax[,-c(2:6,13)]
+# tax1$OTU_names
+# 
+# load(file = "prep.otuCountTable/complete.gras.total.sort.400.Robj")
+# 
+# complete.gras.total.sort.400$OTU_names
+# 
+# final.tax <- merge(complete.gras.total.sort.400,tax1, by="OTU_names")
+# dim(final.tax)
+# tail(final.tax)
+# head(final.tax)
+# 
+# save(final.tax, file = "prep.otuCountTable/final.tax.gras.total.400.Robj")
+# write.table(final.tax, paste("prep.otuCountTable/txt_saves/final.tax.gras.total.400",Sys.Date(),"txt",sep = "."), sep="\t", row.names=FALSE)
+# }
+# 
+# if (exists("final.tax")) {
+#   "done"
+# }
+
+
+# test <- complete.gras.total.sort.400
+# save(test, file = "prep.otuCountTable/test.Robj")
+# rm(test)
+# load(file = "prep.otuCountTable/test.Robj")
+# 
+# saveRDS(test, "prep.otuCountTable/test.rds")
+# test2 <- readRDS("prep.otuCountTable/test.rds")
+# 
+# possibleError <- tryCatch(load(file = "prep.otuCountTable/test2.Robj"), error = function(e) e)
+# 
+# if (inherits(possibleError, 'error')) {# no file found, calculate chunk
+#  test2 <- complete.gras.total.sort.400
+#  save(test2, file = "prep.otuCountTable/test2.Robj")
+# }
+# 
+# if (exists("test2")) {
+#   test.final <- test2
+# }
+```
