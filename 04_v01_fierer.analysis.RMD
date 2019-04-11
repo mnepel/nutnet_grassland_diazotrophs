@@ -11,8 +11,8 @@ output: html_document
 ## set working directory
 ```{r}
 # setwd("C:/Users/Max/Desktop/DoME-Data/MiSeq/MiSeq_fierer_grasslands/MiSeq_combined_Nepel_fierer_grasslands_220716_Thomas/dataSetList.txt.nifH.0.03.OTU")
-# setwd("\\\\share4.univie.ac.at/DOME/staff/nepel/MiSeq/Fierer_grasslands_MiSeq/MiSeq_combined_Nepel_fierer_grasslands_220716_Thomas/fierer_foR_manuscript/")
-setwd("Y:/staff/nepel/MiSeq/Fierer_grasslands_MiSeq/MiSeq_combined_Nepel_fierer_grasslands_220716_Thomas/fierer_foR_manuscript/")
+setwd("\\\\share4.univie.ac.at/DOME/staff/nepel/MiSeq/Fierer_grasslands_MiSeq/MiSeq_combined_Nepel_fierer_grasslands_220716_Thomas/fierer_foR_manuscript/")
+# setwd("Y:/staff/nepel/MiSeq/Fierer_grasslands_MiSeq/MiSeq_combined_Nepel_fierer_grasslands_220716_Thomas/fierer_foR_manuscript/")
 ```
 
 # libraries
@@ -111,14 +111,20 @@ OTUs <- OTU.mat.rare # .rel, .norm, .cut
 labels <- labels.rare
 tax <- taxonomy.rare
 
-# creating phyloseq objects
+# creating phyloseq object of the selected normalized dataset
 otu.physq <- otu_table(OTUs, taxa_are_rows=FALSE)
 sam.physq <- sample_data(labels) 
 tax.physq <- tax_table(tax)
 (physeq.gras <- phyloseq(otu.physq, sam.physq, tax.physq))
+
+# creating phyloseq object for non-rarefied dataset
+otu.physq <- otu_table(OTU.mat.cut, taxa_are_rows=FALSE)
+sam.physq <- sample_data(labels.cut) 
+tax.physq <- tax_table(taxonomy.cut)
+(physeq.gras.absolut <- phyloseq(otu.physq, sam.physq, tax.physq))
 ```
 
-# 1. separate numeric from non-numeric factors
+# separate numeric from non-numeric factors
 ```{r}
 labels.2split <- labels
 write.table(labels.2split, paste("fierer.analyses/txt_saves/labels",Sys.Date(),"txt",sep = "."), sep="\t", row.names=FALSE)
@@ -167,7 +173,7 @@ tax.cont <- tax[!rowSums(t(OTUs.cont.0)) == 0, ]
 # -> no significant difference between fenced and normal controls within each site
 ```
 
-# 7. Model categorical using Adonis
+# Model categorical using Adonis
 ```{r}
 (mod.site <- adonis(OTUs ~ site_code, data = labels, method = "bray", permutations = 999))
 (mod.1 <- adonis(OTUs ~ site_code * trt_NNP * trt_NPP, data = labels, method = "bray", permutations = 999))
@@ -305,11 +311,12 @@ write.table(pvs, paste("fierer.analyses/txt_saves/adonis.per.site",Sys.Date(),"t
 ###################################      alpha diversity        ####################################
 ####################################################################################################
 
-# Alpha diversität - phyloseq - not rarefy beforehand!
+# Alpha diversität - phyloseq - not rarefy beforehand, it is taken into account by plot_richness()
 ```{r}
-# ## rarefied alpha div <- not the right way
-# plot_richness(physeq.gras, measures = c("Chao1", "Shannon", "Simpson"))
-# plot_richness(physeq.gras, measures = c("Chao1"))
+(physeq.gras.absolut)
+## rarefied alpha div <- not the right way
+# plot_richness(physeq.gras.absolut, measures = c("Chao1", "Shannon", "Simpson"))
+# plot_richness(physeq.gras.absolut, measures = c("Chao1"))
 plot_richness(physeq.gras, measures = c("Shannon"))
 ```
 
@@ -318,7 +325,7 @@ plot_richness(physeq.gras, measures = c("Shannon"))
 ###################################        ordinations          ####################################
 ####################################################################################################
 
-# 7. select data to plot
+# select data to plot
 ```{r}
 OTU2plot <- OTUs
 Labels <- labels
@@ -373,7 +380,7 @@ ggsave(paste("fierer.analyses/graphs/plot.pcoa.ell",Sys.Date(),"png",sep = "."),
 ggsave(paste("fierer.analyses/graphs/plot.pcoa.ell",Sys.Date(),"pdf",sep = "."),width = 10, height = 8, dpi = 300)
 ```
 
-# 8. Make constrained ordination (dbRDA) using significant/ important factors
+# Make constrained ordination (dbRDA) using significant/ important factors
 ## ~trt_NNP
 ```{r}
 plottitle <- "dbRDA ~ trt_NNP; rarefied to 500 reads"
@@ -516,7 +523,7 @@ ggsave(paste("fierer.analyses/graphs/bar.all.z.cl.perSite",Sys.Date(),"pdf",sep 
 ################################### ONLY 2 NNP significant sites ###################################
 ####################################################################################################
 
-# 7. prepare data to plot ONLY look.us + konz.us
+# prepare data to plot ONLY look.us + konz.us
 ```{r}
 # ## add colums 0/1 for the 3 significant sites (adonis trt_NNP results)
 #   labels$sign <- 0
@@ -584,7 +591,7 @@ ggsave(paste("fierer.analyses/graphs/plot.PCoA.konz.us",Sys.Date(),"png",sep = "
 ggsave(paste("fierer.analyses/graphs/plot.PCoA.konz.us",Sys.Date(),"pdf",sep = "."),width = 7, height = 5, dpi = 300)
 ```
 
-# 8. Make constrained ordination (dbRDA) using significant/ important factors  -  konz.us + look.us
+# Make constrained ordination (dbRDA) using significant/ important factors  -  konz.us + look.us
 ##  - konz.us ~ trt_NNP
 ```{r}
 OTU2plot <- OTUs[grep("konz.us", labels$site_code),] # if only for one specific - look.us, konz.us
@@ -844,6 +851,104 @@ ggsave(paste("fierer.analyses/graphs/bar.sign.z.subcl.fw.siteNNP",Sys.Date(),"pn
 ggsave(paste("fierer.analyses/graphs/bar.sign.z.subcl.fw.siteNNP",Sys.Date(),"pdf",sep = "."),width = 7, height = 5, dpi = 300)
 ```
 
+# getting interesting OTUs
+## define target
+```{r}
+topN = 100
+# most_abundant_taxa = sort(taxa_sums(physeq.bsc.rare.nA), TRUE)[1:topN]
+# print(most_abundant_taxa)
+
+# target = "Tabernas initial crust"
+# target = "Tabernas mature crust"
+# target = "Hochtor"
+# target = "Svalbard"
+target = "Irazu"
+
+```
+
+## run DESeq for target
+```{r}
+(physeq.bsc.subs <- subset_samples(physeq.bsc.rare.nA, Landscape%in%(target)))
+
+# # TaIc vs. TaMc
+# target = "Tabernas"
+# (physeq.bsc.subs <- subset_samples(physeq.bsc.rare.nA, Samplingsite%in%(c(target))))
+# (physeq.bsc.subs <- subset_samples(physeq.bsc.subs, Type%in%(c("crust"))))
+
+# # HOc vs. SVc
+# target = "HOcSVc"
+# (physeq.bsc.subs <- subset_samples(physeq.bsc.rare.nA, Type%in%(c("crust"))))
+# (physeq.bsc.subs <- subset_samples(physeq.bsc.subs, !Samplingsite%in%("Tabernas")))
+# (physeq.bsc.subs <- subset_samples(physeq.bsc.subs, !Landscape%in%("Irazu")))
+# sample_data(physeq.bsc.subs)
+
+most_abundant_taxa = sort(taxa_sums(physeq.bsc.subs), TRUE)[1:topN]
+print(most_abundant_taxa)
+
+physeq.bsc.subs100 = prune_taxa(names(most_abundant_taxa), physeq.bsc.subs)
+# physeq.bsc.Setmerged <- merge_samples(physeq.bsc.rare100, "Set")
+
+
+physeq.sim <- physeq.bsc.subs100
+
+pds <- phyloseq_to_deseq2(physeq.sim, ~ Set)
+
+pds = DESeq(pds)
+
+
+# gm_mean = function(x, na.rm=TRUE){
+#   exp(sum(log(x[x > 0]), na.rm=na.rm) / length(x))
+# }
+# geoMeans = apply(counts(pds), 1, gm_mean)
+# 
+# pds = estimateSizeFactors(pds, geoMeans = geoMeans)
+# 
+# pds = DESeq(pds)
+
+res <- results(pds, cooksCutoff = FALSE)
+alpha=0.04
+sigtab <- res[which(res$padj < alpha), ]
+
+bmean=10 # only show OTUs with at least baseMean of 20 reads
+sigtab2 <- sigtab[which(sigtab$baseMean>bmean), ]
+sigtab <- sigtab2
+
+sigtab <- cbind(as(sigtab,"data.frame"), as(tax_table(physeq.sim)[rownames(sigtab), ], "matrix"))
+head(sigtab,100)
+dim(sigtab)
+
+write.table(sigtab, paste0(target,".sigtab.",alpha,".",bmean,".", topN, ".csv"), sep=";", row.names=TRUE)
+# write.csv2(sigtab, paste0(target,".sigtab", topN, ".csv"))
+
+(count.phylum <- table(sigtab$Phylum))
+(count.class <- table(sigtab$Class))
+(count.order <- table(sigtab$Order))
+(count.family <- table(sigtab$Family))
+(count.genus <- table(sigtab$Genus))
+(count.cluster <- table(sigtab$Zehr.Cluster))
+(count.subcluster <- table(sigtab$Zehr.Subcluster))
+write.table(count.phylum, paste0(target,".sigtab.",alpha,".",bmean,".count.phylum", topN, ".txt"), sep="\t", row.names=FALSE)
+write.table(count.class, paste0(target,".sigtab.",alpha,".",bmean,".count.class", topN, ".txt"), sep="\t", row.names=FALSE)
+write.table(count.order, paste0(target,".sigtab.",alpha,".",bmean,".count.order", topN, ".txt"), sep="\t", row.names=FALSE)
+write.table(count.family, paste0(target,".sigtab.",alpha,".",bmean,".count.family", topN, ".txt"), sep="\t", row.names=FALSE)
+write.table(count.genus, paste0(target,".sigtab.",alpha,".",bmean,".count.genus", topN, ".txt"), sep="\t", row.names=FALSE)
+write.table(count.cluster, paste0(target,".sigtab.",alpha,".",bmean,".count.cluster", topN, ".txt"), sep="\t", row.names=FALSE)
+write.table(count.subcluster, paste0(target,".sigtab.",alpha,".",bmean,".count.subcluster", topN, ".txt"), sep="\t", row.names=FALSE)
+# write.csv2(count.phylum, paste0(target,".sigtab.count.phylum", topN, ".csv"))
+# write.csv2(count.class, paste0(target,".sigtab.count.class", topN, ".csv"))
+# write.csv2(count.order, paste0(target,".sigtab.count.order", topN, ".csv"))
+# write.csv2(count.family, paste0(target,".sigtab.count.family", topN, ".csv"))
+# write.csv2(count.genus, paste0(target,".sigtab.count.genus", topN, ".csv"))
+# write.csv2(count.cluster, paste0(target,".sigtab.count.cluster", topN, ".csv"))
+# write.csv2(count.subcluster, paste0(target,".sigtab.count.subcluster", topN, ".csv"))
+
+otu.exp <- as.data.frame(otu_table(physeq.sim))
+write.csv2(t(otu.exp), paste0(target,".otu.mat", topN, ".csv"))
+
+# siglist <- row.names(sigtab)
+# sig.comm <- otu.exp[,grep(siglist, colnames(otu.exp))]
+
+```
 
 ####################################################################################################
 ################################# numeric / continuous variables ###################################
