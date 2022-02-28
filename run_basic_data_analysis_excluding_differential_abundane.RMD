@@ -1,0 +1,3008 @@
+---
+title: "Factors Structuring Grassland Diazotrophic Communities"
+author: "Maximilian Nepel"
+date: "`r Sys.Date()`"
+output:
+  rmarkdown::html_document:
+    toc: true
+    toc_float: true
+    keep_md: true
+    number_sections: false
+    highlight: "pygments"
+    theme: "flatly"
+    dev: "png"
+    df_print: "kable"
+    fig_caption: true
+    code_folding: "show"
+---
+
+
+# this is the R script to analyse nifH sequencing data used for the paper called
+# "Global grassland diazotrophic communities are structured by combined abiotic, biotic, and spatial distance factors but resilient to fertilization"
+
+## libraries
+```{r}
+library(vegan)
+library(phyloseq)
+library(magrittr)
+library(forcats)
+library(ggplot2)
+library(microbiome)
+library(reshape2)
+library(plyr)
+library(stringr)
+library(DESeq2)
+library(dplyr)
+library(ggrepel)
+```
+
+## functions
+```{r, echo=FALSE}
+PlotOrd <- function(data2plot, components = c("PC1", "PC2"), groups = groups, treatment = treatment, variance = TRUE, connect = FALSE, path = groups, species = NULL, ...){
+  ## plot ordinations as a biplot 
+  # Arguments: 
+  # data - a data frame containing sample and/or species scores from an ordination analysis
+  # species - an optional species scores to be plotted as vectors or points
+  # variance <-   print variance explained to the axis titles
+  # axes <- choose axes to plot
+  #   two.groups <- c("#006837", "#1A9850", "#A6D96A", "#D9EF8B", "#A50026", "#D73027", "#FDAE61", "#FEE08B") # based on brewer: RdYlGn
+  p <- ggplot(data2plot, aes_string(x = components[1], y = components[2])) +
+    geom_point(aes_string(colour = groups, shape = treatment), size = 5, alpha = 3/4) +
+    scale_shape_manual(values=c(23, 17, 15, 16)) + # 7
+      # scale_size_discrete(range = c(8,8)) +
+    theme(panel.background = element_rect(fill = "#F2F2F2"), 
+          panel.grid.minor = element_blank()) + 
+    guides(colour = guide_legend(title = ""), shape = guide_legend(title = "")) +
+ # stat_ellipse(type = "t") +
+#     scale_colour_manual(values = NevadaRainbow) +
+#     scale_colour_brewer(palette = "Dark2") # w/o this command -> unlimited standard colours
+#      scale_colour_brewer(palette = "Paired") # testing!
+  #     theme(legend.position = c(0.9, 0.76), legend.background = element_rect(fill = "white", colour = NA))
+  if (connect == TRUE) {
+    p <- p + geom_path(aes_string(group = path, colour = groups), alpha = 1/2) + guides(colour = guide_legend(title = "Gradient"))
+  }
+  if (!is.null(species)) {
+    p + geom_path(data2plot = arrws, aes(PC1, PC2, group = species), 
+                  colour = "red", arrow = arrow(length = unit(0.05, "npc"))) + 
+      # scale_colour_gradient(limits = c(1,4) legend = F) +
+      geom_text(data = arrws[5:8, ], aes(label = species), hjust = 0.5, vjust = -1, colour = "black")
+  }
+  return(p)
+}
+
+PlotOrd.single <- function(data2plot, components = c("PC1", "PC2"), groups = groups, variance = TRUE, connect = FALSE, path = groups, species = NULL, ...){
+  ## plot ordinations as a biplot 
+  # Arguments: 
+  # data - a data frame containing sample and/or species scores from an ordination analysis
+  # species - an optional species scores to be plotted as vectors or points
+  # variance <-   print variance explained to the axis titles
+  # axes <- choose axes to plot
+  #   two.groups <- c("#006837", "#1A9850", "#A6D96A", "#D9EF8B", "#A50026", "#D73027", "#FDAE61", "#FEE08B") # based on brewer: RdYlGn
+  p <- ggplot(data2plot, aes_string(x = components[1], y = components[2])) +
+    geom_point(aes_string(colour = groups), size = 5, alpha = 3/4) +
+    scale_shape_manual(values=c(18, 17, 15, 16)) + # 7
+      # scale_size_discrete(range = c(8,8)) +
+    theme(panel.background = element_rect(fill = "#F2F2F2"), 
+          panel.grid.minor = element_blank()) + 
+    guides(colour = guide_legend(title = ""), shape = guide_legend(title = "")) +
+#  stat_ellipse(type = "t") +
+#     scale_colour_manual(values = NevadaRainbow) +
+#     scale_colour_brewer(palette = "Dark2") # w/o this command -> unlimited standard colours
+#      scale_colour_brewer(palette = "Paired") # testing!
+  #     theme(legend.position = c(0.9, 0.76), legend.background = element_rect(fill = "white", colour = NA))
+  if (connect == TRUE) {
+    p <- p + geom_path(aes_string(group = path, colour = groups), alpha = 1/2) + guides(colour = guide_legend(title = "Gradient"))
+  }
+  if (!is.null(species)) {
+    p + geom_path(data2plot = arrws, aes(PC1, PC2, group = species), 
+                  colour = "red", arrow = arrow(length = unit(0.05, "npc"))) + 
+      # scale_colour_gradient(limits = c(1,4) legend = F) +
+      geom_text(data = arrws[5:8, ], aes(label = species), hjust = 0.5, vjust = -1, colour = "black")
+  }
+  return(p)
+}
+
+PlotOrd.single.trt <- function(data2plot, components = c("PC1", "PC2"), groups = groups, variance = TRUE, connect = FALSE, path = groups, species = NULL, ...){
+  ## plot ordinations as a biplot 
+  # Arguments: 
+  # data - a data frame containing sample and/or species scores from an ordination analysis
+  # species - an optional species scores to be plotted as vectors or points
+  # variance <-   print variance explained to the axis titles
+  # axes <- choose axes to plot
+  #   two.groups <- c("#006837", "#1A9850", "#A6D96A", "#D9EF8B", "#A50026", "#D73027", "#FDAE61", "#FEE08B") # based on brewer: RdYlGn
+  p <- ggplot(data2plot, aes_string(x = components[1], y = components[2])) +
+    geom_point(aes_string(colour = groups), size = 5, alpha = 3/4) +
+    scale_shape_manual(values=c(17, 15, 16, 18)) + # 7
+      # scale_size_discrete(range = c(8,8)) +
+    theme(panel.background = element_rect(fill = "#F2F2F2"), 
+          panel.grid.minor = element_blank()) + 
+    guides(colour = guide_legend(title = ""), shape = guide_legend(title = "")) +
+#  stat_ellipse(type = "t") +
+    # scale_colour_manual(values = NevadaRainbow) +
+    # scale_colour_brewer(palette = "Dark2") + # w/o this command -> unlimited standard colours
+#      scale_colour_brewer(palette = "Paired") # testing!
+  #     theme(legend.position = c(0.9, 0.76), legend.background = element_rect(fill = "white", colour = NA))
+  if (connect == TRUE) {
+    p <- p + geom_path(aes_string(group = path, colour = groups), alpha = 1/2) + guides(colour = guide_legend(title = "Gradient"))
+  }
+  if (!is.null(species)) {
+    p + geom_path(data2plot = arrws, aes(PC1, PC2, group = species), 
+                  colour = "red", arrow = arrow(length = unit(0.05, "npc"))) + 
+      # scale_colour_gradient(limits = c(1,4) legend = F) +
+      geom_text(data = arrws[5:8, ], aes(label = species), hjust = 0.5, vjust = -1, colour = "black")
+  }
+  return(p)
+}
+
+TaxThresh <- function(Taxonomy, tax.level = "Class", thresh = 0.5){
+  ## clump together all taxa with frequency below threshold as "rare" and all those with bs values below threshold as "unclassified"
+  # vars: Taxonomy=Taxonomy df, bs.vals=bs values df, bs.thresh=threshold of bs value to drop, tax.level=which level should be considered, thresh=threshold for "rare"
+  # make all below bs threshold unclassified
+  Taxonomy[, tax.level] %<>% 
+    as.factor() %>% 
+    fct_expand("Rare") # add "Rare" and level
+  
+  #   Taxonomy[bs.vals[, tax.level] < bs.thresh,tax.level] <- factor("Unclassified") # replace in Taxonomy all rows under tax.level whose corresponding bs.vals are below bs.thresh with "unclassified"
+
+  # count frequencies of taxonomies in samples (unique sequences only * their counts = all sequences)
+  count.tax <- plyr::count(df = Taxonomy, vars = tax.level, wt_var = "Freq") # data.frame, Vars, weight
+  count.tax[, 2] <- (count.tax[, 2] / sum((count.tax[, 2]))) * 100 # norm to 100%
+
+  ab.tax <- droplevels(count.tax[count.tax$freq > thresh, ]) # remove all taxa below threshold (keep abundent taxa)
+
+  # generate logical vector of abundant taxa
+  inds <- vector(mode = "logical", length = nrow(Taxonomy)) # assign a logical vector length Taxonomy
+  # cycle through taxa and generate logical vector of abundant taxa
+  for (i in 1:length(levels(ab.tax[, 1]))) inds <- as.logical(inds + grepl(levels(ab.tax[,1])[i], Taxonomy[, tax.level]))
+  possibleError <- tryCatch(Taxonomy[!inds, tax.level] <- "Rare", error = function(e) e) # replace all rare taxa with "Rare"
+  ab.Taxonomy <- droplevels(Taxonomy) # remove factor levels reclassified as either "rare" or "unclassified"
+  return(ab.Taxonomy)
+}
+
+ReplaceLowerOrUpperTriangle <- function(m, triangle.to.replace){
+   # If triangle.to.replace="lower", replaces the lower triangle of a square matrix with its upper triangle.
+   # If triangle.to.replace="upper", replaces the upper triangle of a square matrix with its lower triangle.
+
+   if (nrow(m) != ncol(m)) stop("Supplied matrix must be square.")
+   if      (tolower(triangle.to.replace) == "lower") tri <- lower.tri(m)
+   else if (tolower(triangle.to.replace) == "upper") tri <- upper.tri(m)
+   else stop("triangle.to.replace must be set to 'lower' or 'upper'.")
+   m[tri] <- t(m)[tri]
+   return(m)
+}
+
+gplotRegression <- function(fit) {
+  #usage ggplotRegression(lm(real~measured, data=std))
+  require(ggplot2)
+  ggplot(fit$model, aes_(x = as.name(names(fit$model)[2]), y = as.name(names(fit$model)[1]))) +
+    geom_point(size = 2, alpha = 1/3, colour = "deepskyblue4") +
+    stat_smooth(method = "lm", col = "red4") +
+    labs(title = paste("Adj R2 = ",signif(summary(fit)$adj.r.squared, 2),
+                       "; Intercept =",signif(fit$coef[[1]], 2),
+                       "; Slope =",signif(fit$coef[[2]], 2),
+                       "; P =",signif(summary(fit)$coef[2,4], 2))) +
+    # scale_y_continuous(limits = c(0, 100)) +
+    theme(plot.title = element_text(size = 7))
+}
+
+# for testing for correlations within env. factors
+panel.cor <- function(x, y, digits=2, prefix="", cex.cor) 
+    {
+  usr <- par("usr"); on.exit(par(usr)) 
+  par(usr = c(0, 1, 0, 1)) 
+  r <- abs(cor(x, y)) 
+  txt <- format(c(r, 0.123456789), digits=digits)[1] 
+  txt <- paste(prefix, txt, sep="") 
+  if(missing(cex.cor)) cex <- 0.8/strwidth(txt) 
+
+  test <- cor.test(x,y) 
+  text(0.5, 0.5, txt, cex = cex * r) 
+    }
+
+colPalette03 <- c("#111111", "#811111", "#FF1111", "#118111", "#FF8111", "#818111", "#11FF11", "#111181", "#FFFF11", "#811181", 
+              "#FF1181", "#118181", "#FF8181", "#818181", "#81FF81", "#1111FF", "#FFFF81", "#FF11FF", "#8111FF", "#FF81FF", "#8181FF", "#81FFFF", 
+              "#444444", "#844444", "#FF4444", "#448444", "#FF8444", "#848444", "#44FF44", "#444484", "#FFFF44", "#844484",
+              "#FF4484", "#448484", "#FF8484", "#848484", "#84FF84", "#4444FF", "#FFFF84", "#FF44FF", "#8444FF", "#FF84FF", "#8484FF", "#84FFFF",
+              "#666666", "#866666", "#FF6666", "#668666", "#FF8666", "#868666", "#66FF66", "#666686", "#FFFF66", "#866686",
+              "#FF6686", "#668686", "#FF8686", "#868686", "#86FF86", "#6666FF", "#FFFF86", "#FF66FF", "#8666FF", "#FF86FF", "#8686FF", "#86FFFF",
+              "#999999", "#899999", "#FF9999", "#998999", "#FF8999", "#898999", "#99FF99", "#999989", "#FFFF99", "#899989",
+              "#FF9989", "#998989", "#FF8989", "#898989", "#89FF89", "#9999FF", "#FFFF89", "#FF99FF", "#8999FF", "#FF89FF", "#8989FF", "#89FFFF")
+```
+
+## loading modified and normalized datasets
+```{r}
+load(file = "prep.otuCountTable/normalizations_newTaxSort3.Robj")
+# OTU.mat.rel - normalized to relative abundance, only samples >500 reads
+# OTU.mat.abs - total read counts, only samples >500 reads
+# meta.data - meta data, we got from Noah
+# taxonomy - based on blast results
+# taxonomy.sort - prefix added to taxonomy for sorting lower taxonomic level based on taxonomic classes (e.g., that all orders of the same class are grouped and not alphabetically sorted)
+
+RD_DIR <- "prep.otuCountTable/RD"
+labels.comm.total <- readRDS(file.path(RD_DIR, "labels.comm.total.rds")) # aditional plant comm metadata
+labels.nut.m <- readRDS(file.path(RD_DIR, "labels.nut.m.rds")) # additional nutrient data
+physeq.abs <- readRDS(file.path(RD_DIR, "physeq.abs.rds")) # - phyloseq object - all samples - absolute read counts
+physeq.norm <- readRDS(file.path(RD_DIR, "physeq.norm.rds")) # - phyloseq object - all samples - read counts normalized to relative abundance 
+labels.num.cmb <- readRDS(file.path(RD_DIR, "labels.num.cmb.rds")) # numeric metadata
+mrm.sig.scaled <- readRDS(file.path(RD_DIR, "mrm.sig.scaled.rds"))
+```
+
+# list of sites for sorting
+```{r}
+SI_TableS1 <- read.table("prep.otuCountTable/SI_TableS1.txt", sep="\t", head=TRUE)
+sort3 <- SI_TableS1[,c("Site.code")]
+```
+
+### phyloseq objects of control samples - OTU level
+```{r, cache=T}
+# normalized data set - only.Controls
+(physeq.norm.cont <- subset_samples(physeq.norm, trt_yn%in%("control")))
+  (physeq.norm.cont <- prune_taxa(taxa_sums(physeq.norm.cont) > 0, physeq.norm.cont))
+
+# extract objects for data analyses  - only.Controls
+otu.norm.cont <- as.data.frame(as(otu_table(physeq.norm.cont), "matrix"))
+sam.norm.cont <- as(sample_data(physeq.norm.cont), "data.frame") 
+tax.norm.cont <- as.data.frame(as(tax_table(physeq.norm.cont), "matrix"))
+
+dim(otu_table(physeq.abs))
+sum(otu_table(physeq.abs))
+mean(rowSums(otu_table(physeq.abs)))
+
+# testing library size
+(lib.size <- adonis(otu_table(physeq.abs) ~ readsums, data = get_variable(physeq.abs), method = "bray", permutations = 999))
+
+# non-normalized data set - only.Controls
+(physeq.abs.cont <- subset_samples(physeq.abs, trt_yn%in%("control")))
+  (physeq.abs.cont <- prune_taxa(taxa_sums(physeq.abs.cont) > 0, physeq.abs.cont))
+
+dim(otu_table(physeq.abs.cont))
+sum(otu_table(physeq.abs.cont))
+mean(rowSums(otu_table(physeq.abs.cont)))
+```
+
+### phyloseq objects of control samples - genus level
+```{r, cache=T}
+# normalized data set
+(physeq.norm.cont.genus <- tax_glom(physeq.norm.cont, taxrank="Genus")) # tax_glom() based on genus level.
+tax_table(physeq.norm.cont.genus) <- tax_table(physeq.norm.cont.genus)[,1:6]
+(physeq.norm.cont.genus <- prune_taxa(taxa_sums(physeq.norm.cont.genus) > 0, physeq.norm.cont.genus))
+
+# absolute read count data
+(physeq.abs.cont.genus <- tax_glom(physeq.abs.cont, taxrank="Genus")) # tax_glom() based on genus level.
+tax_table(physeq.abs.cont.genus) <- tax_table(physeq.abs.cont.genus)[,1:6]
+(physeq.abs.cont.genus <- prune_taxa(taxa_sums(physeq.abs.cont.genus) > 0, physeq.abs.cont.genus))
+```
+
+
+
+
+
+# analysis part - alpha & beta diversity, taxonomic bar plots, adonis, mantel, differential abundance...
+
+
+
+
+
+## -------------------Geographic distance increased dissimilarity in the diazotrophic community------------------
+
+### PERMANOVA
+
+#### testing the spatial distribution of diazotrophs and if fence/controls are significant different
+```{r, cache=T}
+# only taking no-addition treatment controls
+
+# testing the spatial distribution of diazotrophs: continent - region - location
+(mod.spatial <- adonis(otu_table(physeq.norm.cont) ~ continent + region + site_code, data = get_variable(physeq.norm.cont), method = "bray", permutations = 9999))
+
+# testing the difference between the two no-addition treatment control sample types; site_code as strata 
+(mod.cont <- adonis(otu_table(physeq.norm.cont) ~ trt, data = get_variable(physeq.norm.cont), method = "bray", permutations = 999, strata = sam.norm.cont$site_code))
+
+# genus level
+#testing the effect of site_code on the distribution of genera
+(mod.genus.site <- adonis(otu_table(physeq.norm.cont.genus) ~ site_code, data = get_variable(physeq.norm.cont.genus), method = "bray", permutations = 999))
+```
+
+#### testing the significance of the geographic distance
+```{r, cache=T}
+# creating a geographic distance matrix; package "geosphere"
+labels4dist3 <- get_variable(physeq.norm.cont)[,c("longitude", "latitude")]
+  labels4dist3$latitude <- as.numeric(levels(labels4dist3$latitude))[labels4dist3$latitude]
+  labels4dist3$longitude <- as.numeric(levels(labels4dist3$longitude))[labels4dist3$longitude]
+  sapply(labels4dist3, class)
+dist.site <- round(geosphere::distm(labels4dist3, fun = geosphere::distGeo) / 1000)
+rownames(dist.site) <- row.names(labels4dist3)
+colnames(dist.site) <- row.names(labels4dist3)
+
+# testing significance the geographic distance
+
+# on OTU level
+(m3 <- mantel(vegdist(otu_table(physeq.norm.cont)), dist.site, method="spearman", permutations = 1000)) # showing that closer sites are more similar than sites being more further away
+
+# on genus level
+(m4 <- mantel(vegdist(otu_table(physeq.norm.cont.genus)), dist.site, method="spearman", permutations = 1000)) # showing that closer sites are more similar than sites further apart
+```
+
+## general ordinations - overall nifH diversity - only no-addition treatment controls
+
+### beta diversity
+
+#### Make constrained ordination (dbRDA) - controls & site_code - OTUs
+```{r, cache=T}
+OTU2plot <- otu_table(physeq.norm.cont)
+Labels2plot <- get_variable(physeq.norm.cont)
+plottitle <- "dbRDA controls site_code .rel.ab"
+
+pcoa.obj <- capscale((OTU2plot) ~ site_code, data = Labels2plot, distance = "bray")
+
+dbRDA.scores <- scores(pcoa.obj)
+explained <- eigenvals( pcoa.obj )/sum( eigenvals( pcoa.obj ) ) * 100
+explained <- format( round( explained, 1 ), nsmall = 1 )
+
+dbRDA.df <- data.frame(id = row.names(dbRDA.scores$sites), dbRDA.scores$sites, sampleID = Labels2plot$sampleID, Names = Labels2plot$Names, conc = Labels2plot$conc, site_code = Labels2plot$site_code, continent = Labels2plot$continent, country = Labels2plot$country, region = Labels2plot$region, trt = Labels2plot$trt, nutrient_trt = Labels2plot$nutrient_trt, soil_pH = Labels2plot$soil_pH, trt_yn=Labels2plot$trt_yn)
+
+colnames(dbRDA.df)[c(2,3)] <- c("PC1", "PC2")
+p <- PlotOrd(dbRDA.df , components = c("PC1", "PC2"), groups = "site_code", treatment = "continent", variance = TRUE, connect = FALSE)
+
+p + scale_size_manual(values = c(4, 8)) + ggtitle(plottitle) +
+      stat_ellipse(
+    aes(x = PC1,
+        y = PC2,
+        fill = continent
+        ),
+    geom = "polygon",
+    alpha = 1/7,
+    type = "norm",
+    level = 0.95,
+    # linetype = 2,
+    show.legend = TRUE,
+    inherit.aes = FALSE
+  ) +
+  xlab(paste("dbRDA 1 (", explained[1], "%)", sep = "")) + 
+  ylab(paste("dbRDA 2 (", explained[2], "%)", sep = ""))
+
+ggsave(paste("fierer.analyses/graphs/plot.dbRDA.cont.site.ell86",Sys.Date(),"png",sep = "."),width = 8, height = 6, dpi = 300)
+ggsave(paste("fierer.analyses/graphs/plot.dbRDA.cont.site.ell86",Sys.Date(),"pdf",sep = "."),width = 8, height = 6, dpi = 300)
+```
+
+#### Make constrained ordination (dbRDA) - controls & site_code - genus
+```{r, cache=T}
+OTU2plot <- otu_table(physeq.norm.cont.genus)
+Labels2plot <- get_variable(physeq.norm.cont.genus)
+plottitle <- "dbRDA controls site_code .rel.ab - genus"
+
+pcoa.obj <- capscale((OTU2plot) ~ site_code, data = Labels2plot, distance = "bray")
+
+dbRDA.scores <- scores(pcoa.obj)
+explained <- eigenvals( pcoa.obj )/sum( eigenvals( pcoa.obj ) ) * 100
+explained <- format( round( explained, 1 ), nsmall = 1 )
+
+dbRDA.df <- data.frame(id = row.names(dbRDA.scores$sites), dbRDA.scores$sites, sampleID = Labels2plot$sampleID, Names = Labels2plot$Names, conc = Labels2plot$conc, site_code = Labels2plot$site_code, continent = Labels2plot$continent, country = Labels2plot$country, region = Labels2plot$region, trt = Labels2plot$trt, nutrient_trt = Labels2plot$nutrient_trt, soil_pH = Labels2plot$soil_pH, trt_yn=Labels2plot$trt_yn)
+
+colnames(dbRDA.df)[c(2,3)] <- c("PC1", "PC2")
+p <- PlotOrd(dbRDA.df , components = c("PC1", "PC2"), groups = "site_code", treatment = "continent", variance = TRUE, connect = FALSE)
+
+p + scale_size_manual(values = c(4, 8)) + ggtitle(plottitle) +
+      # stat_ellipse(
+    # aes(x = PC1,
+    #     y = PC2,
+    #     fill = continent
+    #     ),
+    # geom = "polygon",
+    # alpha = 1/7,
+    # type = "norm",
+    # level = 0.95,
+    # linetype = 2,
+    # show.legend = TRUE,
+    # inherit.aes = FALSE
+  # ) +
+  xlab(paste("dbRDA 1 (", explained[1], "%)", sep = "")) + 
+  ylab(paste("dbRDA 2 (", explained[2], "%)", sep = ""))
+
+ggsave(paste("fierer.analyses/graphs/plot.dbRDA.cont.site.genus.64",Sys.Date(),"png",sep = "."),width = 6, height = 4, dpi = 300)
+ggsave(paste("fierer.analyses/graphs/plot.dbRDA.cont.site.genus.64",Sys.Date(),"pdf",sep = "."),width = 6, height = 4, dpi = 300)
+```
+
+
+
+
+
+
+## ------------------------------------------------------------------------------------------------------------
+
+
+
+### microbiome
+
+#### calculate absolute and the average rel. abund. per site - OTU level
+```{r}
+# summerized absolute read counts
+(physeq.site.abs.cont <- merge_samples(physeq.abs.cont, "site_code")) 
+otu.site.abs.cont <- as.data.frame(otu_table(physeq.site.abs.cont, taxa_are_rows=FALSE))
+otu.site.norm.cont <- sweep(otu.site.abs.cont, 1, rowSums(otu.site.abs.cont), '/') * 100 # --> rel. abundance data
+
+# summerized relative read abundance
+physeq.site.norm.cont <- physeq.site.abs.cont
+otu_table(physeq.site.norm.cont) <- otu_table(otu.site.norm.cont, taxa_are_rows=FALSE)
+```
+
+##### core() norm. - OTUs per site
+```{r}
+(physeq.core <- physeq.site.norm.cont)
+
+# OTUs detected in at least 2 out of 23 sites
+
+{prev <- 1 # min no. of sites
+det <- 0.0 # min % per site
+(sub.core <- core(physeq.core, detection = det, prevalence = prev/23))
+print(sub.core)}
+tax.core <- as.data.frame(sub.core@tax_table@.Data)[-c(1,2,7)]
+unique(tax.core$Class)
+tax.core$taxa <- row.names(tax.core)
+# calculate average relative abundance of abundant taxa
+tax.core$av.ab <- colSums(otu_table(physeq.core)[,colnames(otu_table(physeq.core)) %in% tax.core$taxa])/nrow(otu_table(physeq.core)) 
+sum(tax.core$av.ab) # abundant taxa account for X% of total reads (based on rel.ab. per sample)
+
+# No. & % of OTUs only present in one single site
+
+ntaxa(physeq.core)-ntaxa(sub.core)
+(ntaxa(physeq.core)-ntaxa(sub.core))/ntaxa(physeq.core)
+
+# OTUs detected in at least 12 out of 23 sites
+
+{prev <- 11 # min no. of sites
+det <- 0.0 # min % per site
+(sub.core <- core(physeq.core, detection = det, prevalence = prev/23))
+print(sub.core)}
+(tax.core <- as.data.frame(sub.core@tax_table@.Data))[-c(1,2,7)]
+unique(tax.core$Class)
+unique(tax.core$Order)
+unique(tax.core$Genus)
+tax.core$taxa <- row.names(tax.core)
+# calculate average relative abundance of abundant taxa
+tax.core$av.ab <- colSums(otu_table(physeq.core)[,colnames(otu_table(physeq.core)) %in% tax.core$taxa])/nrow(otu_table(physeq.core)) 
+sum(tax.core$av.ab) # abundant taxa account for X% of total reads (based on rel.ab. per sample)
+
+# OTUs detected in all 23 sites
+
+{prev <- 22 # min no. of sites
+det <- 0.0 # min % per site
+(sub.core <- core(physeq.core, detection = det, prevalence = prev/23))
+print(sub.core)}
+(tax.core <- as.data.frame(sub.core@tax_table@.Data))[-c(1,2,7)]
+```
+
+#### calculate absolute and the average rel. abund. per site - genera level
+```{r}
+# based on already done sample_merge() per site
+(physeq.site.abs.cont.genus <- tax_glom(physeq.site.abs.cont, taxrank="Genus"))
+tax_table(physeq.site.abs.cont.genus) <- tax_table(physeq.site.abs.cont.genus)[,1:6]
+(physeq.site.norm.cont.genus <- tax_glom(physeq.site.norm.cont, taxrank="Genus"))
+tax_table(physeq.site.norm.cont.genus) <- tax_table(physeq.site.norm.cont.genus)[,1:6]
+```
+
+##### core() + prevalence histogram rel.ab. - genera per site
+```{r}
+(physeq.core <- physeq.site.norm.cont.genus)
+
+# Genera detected in at least 2 out of 23 sites
+
+{prev <- 1 # min no. of sites
+det <- 0.0 # min % per site
+(sub.core <- core(physeq.core, detection = det, prevalence = prev/23))
+print(sub.core)}
+tax.core <- as.data.frame(sub.core@tax_table@.Data)[-c(1,2,7)]
+unique(tax.core$Class)
+tax.core$taxa <- row.names(tax.core)
+# calculate average relative abundance of abundant taxa
+tax.core$av.ab <- colSums(otu_table(physeq.core)[,colnames(otu_table(physeq.core)) %in% tax.core$taxa])/nrow(otu_table(physeq.core)) 
+sum(tax.core$av.ab) # abundant taxa account for X% of total reads (based on rel.ab. per sample)
+
+# No. & % of OTUs only present in one single site
+
+ntaxa(physeq.core)-ntaxa(sub.core)
+(ntaxa(physeq.core)-ntaxa(sub.core))/ntaxa(physeq.core)
+
+# Genera detected in all 23 sites
+
+{prev <- 99 # min % of sites
+det <- 0.0 # min % per site
+(sub.core <- core(physeq.core, detection = det, prevalence = prev/100))
+print(sub.core)}
+(tax.core <- as.data.frame(sub.core@tax_table@.Data))[-c(1,2,7)]
+unique(tax.core$Class)
+unique(tax.core$Order)
+unique(tax.core$Genus)
+tax.core$taxa <- row.names(tax.core)
+# calculate average relative abundance of abundant taxa
+tax.core$av.ab <- colSums(otu_table(physeq.core)[,colnames(otu_table(physeq.core)) %in% tax.core$taxa])/nrow(otu_table(physeq.core)) 
+sum(tax.core$av.ab) # abundant taxa account for X% of total reads (based on rel.ab. per sample)
+
+# ubiquitous genera accounted each for at least 0.1% of reads per site
+
+{ prev <- 99 # min % of samples 
+  det <- 0.10 # min % per sample
+  sub.core <- core(physeq.core, detection = det, prevalence = prev/100)
+  print(sub.core)}
+otu_table(physeq.core)[1:23,c("OTU_3132", "OTU_205", "OTU_252", "OTU_63")]
+ntaxa(sub.core)/ntaxa(physeq.core) # % of genera present in that many site
+(tax.core <- as.data.frame(tax_table(sub.core)))
+tax.core$taxa <- row.names(tax.core)
+# calculate average relative abundance of abundant taxa
+tax.core$av.ab <- colSums(otu_table(physeq.core)[,colnames(otu_table(physeq.core)) %in% tax.core$taxa])/nrow(otu_table(physeq.core)) 
+sum(tax.core$av.ab) # abundant taxa account for X% of total reads (based on rel.ab. per sample)
+```
+
+### taxonomy bar plots
+
+#### phyloseq - preparing data for modelling & plotting
+```{r, cache=T}
+OTU4tax <- as.data.frame(t(otu_table(physeq.norm.cont))) # as.data.frame(t(OTUs))
+dim(OTU4tax)
+  OTU4tax$Total <- rowSums(OTU4tax)
+  OTU4tax$OTU <- rownames(OTU4tax)
+```
+
+#### base for stacked bar charts & heatmaps @ taxonomic level
+```{r, cache=T}
+Taxonomy <- cbind(physeq.norm.cont@tax_table@.Data, OTU4tax) # combine data.frames (OTU/Taxonomy & Sample Abundance; merge doesnt work on such large dbs)
+Taxonomy <- melt(Taxonomy, id = c("OTU", "Total", "Domain", "Phylum", "Class", "Order", "Family", "Genus", "Zehr.Cluster", "Zehr.Subcluster"), variable.name = 'Name', value.name = 'Freq', na.rm = TRUE) # --> jede OTU in jedem sample einen eintrag mit frequenz
+
+Taxonomy <- merge(Taxonomy, get_variable(physeq.norm.cont), by.x = "Name", by.y = "Names")
+
+ab.Taxonomy.class <- TaxThresh(Taxonomy, tax.level = "Class", thresh = 0.8) # keep ONLY classes which account for >0.8% of all 
+ab.Taxonomy.order <- TaxThresh(Taxonomy, tax.level = "Order", thresh = 0.5) # get ONLY abundant taxonomy
+ab.Taxonomy.family <- TaxThresh(Taxonomy, tax.level = "Family", thresh = 0.5) # get ONLY abundant taxonomy
+ab.Taxonomy.genus0.5 <- TaxThresh(Taxonomy, tax.level = "Genus", thresh = 0.5) # get ONLY abundant taxonomy
+ab.Taxonomy.genus0.3 <- TaxThresh(Taxonomy, tax.level = "Genus", thresh = 0.3) # get ONLY abundant taxonomy
+ab.Taxonomy.genus0.1 <- TaxThresh(Taxonomy, tax.level = "Genus", thresh = 0.1) # get ONLY abundant taxonomy
+ab.Taxonomy.z.cluster <- TaxThresh(Taxonomy, tax.level = "Zehr.Cluster", thresh = 0.5) # get ONLY abundant taxonomy
+ab.Taxonomy.z.subcluster <- TaxThresh(Taxonomy, tax.level = "Zehr.Subcluster", thresh = 0.5) # get ONLY abundant taxonomy
+```
+
+#### stacked bar plots
+
+##### --> stacked bar charts @ Class level
+```{r, cache=T}
+## prepare data for plotting
+ab.Taxonomy <- ab.Taxonomy.class
+#class
+tax.data2plot0 <- data.frame(Sample = ab.Taxonomy$Name, Freq = ab.Taxonomy$Freq, Taxa = ab.Taxonomy$Class, Zehr.Cluster = ab.Taxonomy$Zehr.Cluster, Zehr.Subcluster = ab.Taxonomy$Zehr.Subcluster, site_code = ab.Taxonomy$site_code, continent = ab.Taxonomy$continent, elevation = ab.Taxonomy$elevation, trt_NNP = ab.Taxonomy$trt_NNP, nutrient_trt = ab.Taxonomy$nutrient_trt)
+
+tax.data2plot <- ddply(tax.data2plot0, c("Taxa", "Sample", "site_code", "nutrient_trt"), summarise, Freq = sum(Freq)) # eintr?ge reduziert auf einen eintrag pro Class und Sample # wurde ev.schon durch merge_samples() in phyloseq gemacht
+
+  ## adds relative abundance $Sample
+for (i in 1:nrow(tax.data2plot)) {
+  sample.sum <- sum(tax.data2plot$Freq[tax.data2plot$Sample == tax.data2plot$Sample[i]])
+  tax.data2plot$sam.Rel.Ab[i] <- tax.data2plot$Freq[i] / sample.sum * 100}
+
+  ## adds relative abundance $site_code
+for (i in 1:nrow(tax.data2plot)) {
+  sample.sum <- sum(tax.data2plot$Freq[tax.data2plot$site_code == tax.data2plot$site_code[i]])
+  tax.data2plot$site.Rel.Ab[i] <- tax.data2plot$Freq[i] / sample.sum * 100}
+
+  ## adds relative abundance $nutrient_trt
+for (i in 1:nrow(tax.data2plot)) {
+  sample.sum <- sum(tax.data2plot$Freq[tax.data2plot$nutrient_trt == tax.data2plot$nutrient_trt[i]])
+  tax.data2plot$trt.Rel.Ab[i] <- tax.data2plot$Freq[i] / sample.sum * 100}
+
+  ## plot stacked bar chart per site_code
+site.rel.bar <- qplot(x=site_code,data=tax.data2plot,geom="bar",weight=site.Rel.Ab,fill=Taxa, main="bar.cont.class.perSite") +
+  scale_fill_manual(values=colPalette03) +
+  scale_x_discrete(limits=sort4) +
+  scale_y_continuous(expand = c(0,1)) + # reduced space between bars and x-axis
+  theme(axis.text.x = element_text(angle = 30, hjust = 1)) # rotating the x-axis labels
+site.rel.bar # + facet_wrap(~continent, ncol=1, scale="free")
+
+ggsave(paste("fierer.analyses/graphs/bar.cont.class.sort.0.8.perSite",Sys.Date(),"png",sep = "."),width = 10, height = 6, dpi = 300)
+ggsave(paste("fierer.analyses/graphs/bar.cont.class.sort.0.8.perSite",Sys.Date(),"pdf",sep = "."),width = 10, height = 6, dpi = 300)
+
+# get statistics
+levels(tax.data2plot$Taxa)
+sum.class.trt <- aggregate(tax.data2plot$trt.Rel.Ab, by=list(Taxa=tax.data2plot$Taxa), FUN=sum)
+sum.class.trt
+
+tax.data2plot$taxSite <- paste(tax.data2plot$Taxa, tax.data2plot$site_code, sep="_")
+sum.class.min.max <- aggregate(tax.data2plot$site.Rel.Ab, by=list(taxSite=tax.data2plot$taxSite), FUN=sum)
+sum.class.min.max 
+
+str_split_fixed(sum.class.min.max$taxSite, "_", 2) %>% 
+  cbind(., sum.class.min.max) %>% 
+  set_colnames(c("Taxa", "site_code", "taxSite", "rel.ab")) %>% 
+  mutate(Taxa = as.factor(Taxa)) ->
+  sum.class.min.max.2
+
+
+d6 <- data.frame(matrix(ncol = 4,nrow = 0))
+  colnames(d6) <- c("Taxa","min","mean", "max") # per site
+for (k in 1:length(levels(sum.class.min.max.2$Taxa))) {
+  d6[k,1] <- levels(sum.class.min.max.2$Taxa)[[k]]
+  d6[k,2] <- min(sum.class.min.max.2$rel.ab[sum.class.min.max.2$Taxa == levels(sum.class.min.max.2$Taxa)[[k]]])
+  d6[k,3] <- mean(sum.class.min.max.2$rel.ab[sum.class.min.max.2$Taxa == levels(sum.class.min.max.2$Taxa)[[k]]])
+  d6[k,4] <- max(sum.class.min.max.2$rel.ab[sum.class.min.max.2$Taxa == levels(sum.class.min.max.2$Taxa)[[k]]])
+}
+  print(d6)
+```
+
+##### --> stacked bar charts @ Order level
+```{r, cache=T}
+## prepare data for plotting
+ab.Taxonomy <- ab.Taxonomy.order
+#class
+tax.data2plot0 <- data.frame(Sample = ab.Taxonomy$Name, Freq = ab.Taxonomy$Freq, Taxa = ab.Taxonomy$Order, Class = ab.Taxonomy$Class, Zehr.Cluster = ab.Taxonomy$Zehr.Cluster, Zehr.Subcluster = ab.Taxonomy$Zehr.Subcluster, site_code = ab.Taxonomy$site_code, continent = ab.Taxonomy$continent, elevation = ab.Taxonomy$elevation, trt_NNP = ab.Taxonomy$trt_NNP, nutrient_trt = ab.Taxonomy$nutrient_trt)
+
+tax.data2plot <- ddply(tax.data2plot0, c("Taxa", "Sample", "site_code", "nutrient_trt", "Class"), summarise, Freq = sum(Freq)) # eintr?ge reduziert auf einen eintrag pro Class und Sample # wurde ev.schon durch merge_samples() in phyloseq gemacht
+
+  ## adds relative abundance $Sample
+for (i in 1:nrow(tax.data2plot)) {
+  sample.sum <- sum(tax.data2plot$Freq[tax.data2plot$Sample == tax.data2plot$Sample[i]])
+  tax.data2plot$sam.Rel.Ab[i] <- tax.data2plot$Freq[i] / sample.sum * 100}
+
+  ## adds relative abundance $site_code
+for (i in 1:nrow(tax.data2plot)) {
+  sample.sum <- sum(tax.data2plot$Freq[tax.data2plot$site_code == tax.data2plot$site_code[i]])
+  tax.data2plot$site.Rel.Ab[i] <- tax.data2plot$Freq[i] / sample.sum * 100}
+
+  ## plot stacked bar chart per site_code
+site.rel.bar <- qplot(x=site_code,data=tax.data2plot,geom="bar",weight=site.Rel.Ab,fill=Taxa, main="bar.cont.order.perSite") +
+  scale_fill_manual(values=colPalette03) +
+  scale_x_discrete(limits=sort4) +
+  scale_y_continuous(expand = c(0,1)) + # reduced space between bars and x-axis
+  theme(axis.text.x = element_text(angle = 30, hjust = 1)) # rotating the x-axis labels
+site.rel.bar # + facet_wrap(~continent, ncol=1, scale="free")
+
+# get statistics
+
+tax.data2plot$taxSite <- paste(tax.data2plot$Taxa, tax.data2plot$site_code, sep="_")
+sum.order.min.max <- aggregate(tax.data2plot$site.Rel.Ab, by=list(taxSite=tax.data2plot$taxSite), FUN=sum)
+  sum.order.min.max 
+
+str_split_fixed(sum.order.min.max$taxSite, "_", 2) %>% 
+  cbind(., sum.order.min.max) %>% 
+  set_colnames(c("Taxa", "site_code", "taxSite", "rel.ab")) %>% 
+  mutate(Taxa = as.factor(Taxa)) ->
+  sum.order.min.max.2
+
+t1 <- data.frame(matrix(ncol = 4,nrow = 0))
+  colnames(t1) <- c("Taxa","min","mean", "max") # per site
+for (k in 1:length(levels(sum.order.min.max.2$Taxa))) {
+  t1[k,1] <- levels(sum.order.min.max.2$Taxa)[[k]]
+  t1[k,2] <- min(sum.order.min.max.2$rel.ab[sum.order.min.max.2$Taxa == levels(sum.order.min.max.2$Taxa)[[k]]])
+  t1[k,3] <- mean(sum.order.min.max.2$rel.ab[sum.order.min.max.2$Taxa == levels(sum.order.min.max.2$Taxa)[[k]]])
+  t1[k,4] <- max(sum.order.min.max.2$rel.ab[sum.order.min.max.2$Taxa == levels(sum.order.min.max.2$Taxa)[[k]]])
+}
+print(t1)
+```
+
+##### --> stacked bar charts @ Genus level
+```{r, cache=T}
+## prepare data for plotting
+ab.Taxonomy <- ab.Taxonomy.genus0.1
+
+tax.data2plot0 <- data.frame(Sample = ab.Taxonomy$Name, Freq = ab.Taxonomy$Freq, Taxa = ab.Taxonomy$Genus, Class = ab.Taxonomy$Class, Order = ab.Taxonomy$Order, Zehr.Cluster = ab.Taxonomy$Zehr.Cluster, Zehr.Subcluster = ab.Taxonomy$Zehr.Subcluster, site_code = ab.Taxonomy$site_code, continent = ab.Taxonomy$continent, elevation = ab.Taxonomy$elevation, trt_NNP = ab.Taxonomy$trt_NNP, nutrient_trt = ab.Taxonomy$nutrient_trt)
+
+tax.data2plot <- ddply(tax.data2plot0, c("Taxa", "Sample", "site_code", "nutrient_trt", "Class", "Order"), summarise, Freq = sum(Freq)) # eintr?ge reduziert auf einen eintrag pro Class und Sample # wurde ev.schon durch merge_samples() in phyloseq gemacht
+
+  ## adds relative abundance $Sample
+for (i in 1:nrow(tax.data2plot)) {
+  sample.sum <- sum(tax.data2plot$Freq[tax.data2plot$Sample == tax.data2plot$Sample[i]])
+  tax.data2plot$sam.Rel.Ab[i] <- tax.data2plot$Freq[i] / sample.sum * 100}
+
+  ## adds relative abundance $site_code
+for (i in 1:nrow(tax.data2plot)) {
+  sample.sum <- sum(tax.data2plot$Freq[tax.data2plot$site_code == tax.data2plot$site_code[i]])
+  tax.data2plot$site.Rel.Ab[i] <- tax.data2plot$Freq[i] / sample.sum * 100}
+
+  ## plot stacked bar chart per site_code
+site.rel.bar <- qplot(x=site_code,data=tax.data2plot,geom="bar",weight=site.Rel.Ab,fill=Taxa, main="bar.cont.order.perSite") +
+  scale_fill_manual(values=colPalette03) +
+  scale_x_discrete(limits=sort4) +
+  scale_y_continuous(expand = c(0,1)) + # reduced space between bars and x-axis
+  theme(axis.text.x = element_text(angle = 30, hjust = 1)) # rotating the x-axis labels
+site.rel.bar # + facet_wrap(~continent, ncol=1, scale="free")
+
+# get statistics
+
+tax.data2plot$taxSite <- paste(tax.data2plot$Taxa, tax.data2plot$site_code, sep="_")
+sum.order.min.max <- aggregate(tax.data2plot$site.Rel.Ab, by=list(taxSite=tax.data2plot$taxSite), FUN=sum)
+  sum.order.min.max 
+
+str_split_fixed(sum.order.min.max$taxSite, "_", 2) %>% 
+  cbind(., sum.order.min.max) %>% 
+  set_colnames(c("Taxa", "site_code", "taxSite", "rel.ab")) %>% 
+  mutate(Taxa = as.factor(Taxa)) ->
+  sum.order.min.max.2
+
+
+t1 <- data.frame(matrix(ncol = 4,nrow = 0))
+  colnames(t1) <- c("Taxa","min","mean", "max") # per site
+for (k in 1:length(levels(sum.order.min.max.2$Taxa))) {
+  t1[k,1] <- levels(sum.order.min.max.2$Taxa)[[k]]
+  t1[k,2] <- min(sum.order.min.max.2$rel.ab[sum.order.min.max.2$Taxa == levels(sum.order.min.max.2$Taxa)[[k]]])
+  t1[k,3] <- mean(sum.order.min.max.2$rel.ab[sum.order.min.max.2$Taxa == levels(sum.order.min.max.2$Taxa)[[k]]])
+  t1[k,4] <- max(sum.order.min.max.2$rel.ab[sum.order.min.max.2$Taxa == levels(sum.order.min.max.2$Taxa)[[k]]])
+}
+print(t1)
+t1[order(t1$mean),]
+```
+
+##### --> stacked bar charts @ Zehr.Cluster Level
+```{r, cache=T}
+## prepare data for plotting
+ab.Taxonomy <- ab.Taxonomy.z.cluster
+#class
+tax.data2plot <- data.frame(Sample = ab.Taxonomy$Name, Freq = ab.Taxonomy$Freq, Class = ab.Taxonomy$Class, Taxa = ab.Taxonomy$Zehr.Cluster, Zehr.Subcluster = ab.Taxonomy$Zehr.Subcluster, site_code = ab.Taxonomy$site_code, continent = ab.Taxonomy$continent, elevation = ab.Taxonomy$elevation, trt_NNP = ab.Taxonomy$trt_NNP, nutrient_trt = ab.Taxonomy$nutrient_trt)
+
+tax.data2plot <- ddply(tax.data2plot, c("Taxa", "Sample", "site_code", "nutrient_trt"), summarise, Freq = sum(Freq)) # eintr?ge reduziert auf einen eintrag pro Class und Sample # wurde ev.schon durch merge_samples() in phyloseq gemacht
+
+  ## adds relative abundance $Sample
+for (i in 1:nrow(tax.data2plot)) {
+  sample.sum <- sum(tax.data2plot$Freq[tax.data2plot$Sample == tax.data2plot$Sample[i]])
+  tax.data2plot$sam.Rel.Ab[i] <- tax.data2plot$Freq[i] / sample.sum * 100}
+
+  ## adds relative abundance $site_code
+for (i in 1:nrow(tax.data2plot)) {
+  sample.sum <- sum(tax.data2plot$Freq[tax.data2plot$site_code == tax.data2plot$site_code[i]])
+  tax.data2plot$site.Rel.Ab[i] <- tax.data2plot$Freq[i] / sample.sum * 100}
+
+  ## adds relative abundance $nutrient_trt
+for (i in 1:nrow(tax.data2plot)) {
+  sample.sum <- sum(tax.data2plot$Freq[tax.data2plot$nutrient_trt == tax.data2plot$nutrient_trt[i]])
+  tax.data2plot$trt.Rel.Ab[i] <- tax.data2plot$Freq[i] / sample.sum * 100}
+
+  ## plot stacked bar chart per site_code
+site.rel.bar <- qplot(x=site_code,data=tax.data2plot,geom="bar",weight=site.Rel.Ab,fill=Taxa, main="bar.cont.z.cl.perSite") +
+  scale_fill_manual(values=colPalette03) +
+  scale_x_discrete(limits=sort4) +
+  scale_y_continuous(expand = c(0,1)) + # reduced space between bars and x-axis
+  theme(axis.text.x = element_text(angle = 30, hjust = 1)) # rotating the x-axis labels
+site.rel.bar # + facet_wrap(~continent, ncol=1, scale="free")
+
+ggsave(paste("fierer.analyses/graphs/bar.cont.z.cl.perSite",Sys.Date(),"png",sep = "."),width = 10, height = 6, dpi = 300)
+ggsave(paste("fierer.analyses/graphs/bar.cont.z.cl.perSite",Sys.Date(),"pdf",sep = "."),width = 10, height = 6, dpi = 300)
+
+# get statistic
+
+tax.data2plot$taxSite <- paste(tax.data2plot$Taxa, tax.data2plot$site_code, sep="_")
+sum.class.min.max <- aggregate(tax.data2plot$site.Rel.Ab, by=list(taxSite=tax.data2plot$taxSite), FUN=sum)
+  sum.class.min.max 
+
+str_split_fixed(sum.class.min.max$taxSite, "_", 2) %>% 
+  cbind(., sum.class.min.max) %>% 
+  set_colnames(c("Taxa", "site_code", "taxSite", "rel.ab")) %>% 
+  mutate(Taxa = as.factor(Taxa)) ->
+  sum.class.min.max.2
+
+d6 <- data.frame(matrix(ncol = 4,nrow = 0))
+  colnames(d6) <- c("Taxa","min","mean", "max") # per site
+for (k in 1:length(levels(sum.class.min.max.2$Taxa))) {
+  d6[k,1] <- levels(sum.class.min.max.2$Taxa)[[k]]
+  d6[k,2] <- min(sum.class.min.max.2$rel.ab[sum.class.min.max.2$Taxa == levels(sum.class.min.max.2$Taxa)[[k]]])
+  d6[k,3] <- mean(sum.class.min.max.2$rel.ab[sum.class.min.max.2$Taxa == levels(sum.class.min.max.2$Taxa)[[k]]])
+  d6[k,4] <- max(sum.class.min.max.2$rel.ab[sum.class.min.max.2$Taxa == levels(sum.class.min.max.2$Taxa)[[k]]])
+}
+print(d6)
+```
+
+##### --> stacked bar charts @ Zehr.subcluster Level
+```{r, cache=T}
+## prepare data for plotting
+ab.Taxonomy <- ab.Taxonomy.z.subcluster
+#class
+tax.data2plot <- data.frame(Sample = ab.Taxonomy$Name, Freq = ab.Taxonomy$Freq, Class = ab.Taxonomy$Class, Taxa = ab.Taxonomy$Zehr.Subcluster, Zehr.Cluster = ab.Taxonomy$Zehr.Cluster, site_code = ab.Taxonomy$site_code, continent = ab.Taxonomy$continent, elevation = ab.Taxonomy$elevation, trt_NNP = ab.Taxonomy$trt_NNP, nutrient_trt = ab.Taxonomy$nutrient_trt)
+
+tax.data2plot <- ddply(tax.data2plot, c("Taxa", "Sample", "site_code", "nutrient_trt"), summarise, Freq = sum(Freq)) # eintr?ge reduziert auf einen eintrag pro Class und Sample # wurde ev.schon durch merge_samples() in phyloseq gemacht
+
+  ## adds relative abundance $Sample
+for (i in 1:nrow(tax.data2plot)) {
+  sample.sum <- sum(tax.data2plot$Freq[tax.data2plot$Sample == tax.data2plot$Sample[i]])
+  tax.data2plot$sam.Rel.Ab[i] <- tax.data2plot$Freq[i] / sample.sum * 100}
+
+  ## adds relative abundance $site_code
+for (i in 1:nrow(tax.data2plot)) {
+  sample.sum <- sum(tax.data2plot$Freq[tax.data2plot$site_code == tax.data2plot$site_code[i]])
+  tax.data2plot$site.Rel.Ab[i] <- tax.data2plot$Freq[i] / sample.sum * 100}
+
+  ## adds relative abundance $nutrient_trt
+for (i in 1:nrow(tax.data2plot)) {
+  sample.sum <- sum(tax.data2plot$Freq[tax.data2plot$nutrient_trt == tax.data2plot$nutrient_trt[i]])
+  tax.data2plot$trt.Rel.Ab[i] <- tax.data2plot$Freq[i] / sample.sum * 100}
+
+  ## plot stacked bar chart per site_code
+site.rel.bar <- qplot(x=site_code,data=tax.data2plot,geom="bar",weight=site.Rel.Ab,fill=Taxa, main="bar.cont.z.cl.perSite") +
+  scale_fill_manual(values=colPalette03) +
+  scale_x_discrete(limits=sort4) +
+  scale_y_continuous(expand = c(0,1)) + # reduced space between bars and x-axis
+  theme(axis.text.x = element_text(angle = 30, hjust = 1)) # rotating the x-axis labels
+site.rel.bar # + facet_wrap(~continent, ncol=1, scale="free")
+
+# ggsave(paste("fierer.analyses/graphs/bar.cont.z.subcl.perSite",Sys.Date(),"png",sep = "."),width = 10, height = 6, dpi = 300)
+# ggsave(paste("fierer.analyses/graphs/bar.cont.z.subcl.perSite",Sys.Date(),"pdf",sep = "."),width = 10, height = 6, dpi = 300)
+
+# get statistic
+
+tax.data2plot$taxSite <- paste(tax.data2plot$Taxa, tax.data2plot$site_code, sep="_")
+sum.class.min.max <- aggregate(tax.data2plot$site.Rel.Ab, by=list(taxSite=tax.data2plot$taxSite), FUN=sum)
+  sum.class.min.max 
+
+str_split_fixed(sum.class.min.max$taxSite, "_", 2) %>% 
+  cbind(., sum.class.min.max) %>% 
+  set_colnames(c("Taxa", "site_code", "taxSite", "rel.ab")) %>% 
+  mutate(Taxa = as.factor(Taxa)) ->
+  sum.class.min.max.2
+
+
+d6 <- data.frame(matrix(ncol = 4,nrow = 0))
+  colnames(d6) <- c("Taxa","min","mean", "max") # per site
+for (k in 1:length(levels(sum.class.min.max.2$Taxa))) {
+  d6[k,1] <- levels(sum.class.min.max.2$Taxa)[[k]]
+  d6[k,2] <- min(sum.class.min.max.2$rel.ab[sum.class.min.max.2$Taxa == levels(sum.class.min.max.2$Taxa)[[k]]])
+  d6[k,3] <- mean(sum.class.min.max.2$rel.ab[sum.class.min.max.2$Taxa == levels(sum.class.min.max.2$Taxa)[[k]]])
+  d6[k,4] <- max(sum.class.min.max.2$rel.ab[sum.class.min.max.2$Taxa == levels(sum.class.min.max.2$Taxa)[[k]]])
+}
+print(d6)
+```
+
+
+
+
+## ------------------------------------------------------------------------------------------------------------
+
+
+
+
+## numeric / continuous variables - mantel() from package vegan (mantel() from package ecodist needs different parameters) - which environmental variables drive the diazo community?
+
+### calc geographic distance matrix
+```{r, cache=T}
+# package "geosphere"
+labels4dist3 <- get_variable(physeq.norm.cont)[,c("longitude", "latitude")]
+  class(labels4dist3)
+    labels4dist3$latitude <- as.numeric(levels(labels4dist3$latitude))[labels4dist3$latitude]
+    labels4dist3$longitude <- as.numeric(levels(labels4dist3$longitude))[labels4dist3$longitude]
+  sapply(labels4dist3, class)
+(dist.site <- round(geosphere::distm(labels4dist3, fun = geosphere::distGeo) / 1000))
+rownames(dist.site) <- row.names(labels4dist3)
+colnames(dist.site) <- row.names(labels4dist3)
+
+# geographic distance
+d5 <- data.frame(matrix(ncol = 2,nrow = 0))
+(m3 <- mantel(vegdist(otu_table(physeq.norm.cont)), dist.site, method="spearman", permutations = 1000)) # showing that closer sites are more similar than sites being more further away
+  d5[1,1] <- m3$statistic
+  d5[1,2] <- m3$signif
+  d5$Variable <- "geographic.distance"
+  d5$p_value_adj <- NA # just to have same # of columns for rbind summary
+  row.names(d5) <- "geographic.distance"
+  print(d5)
+
+colnames(d5) <- c("Mantel_statistic","p_value","Variable", "p_value_adj")
+  print(d5)
+
+# on genus level
+(m4 <- mantel(vegdist(otu_table(physeq.norm.cont.genus)), dist.site, method="spearman", permutations = 1000)) # showing that closer sites are more similar than
+```
+
+#### testing meaningfulness of geographic distance matrix
+```{r, cache=T}
+
+dist.env = dist(mrm.sig.scaled[,c("TEMP_WET_Q", "MAP_WARM_Q", "soil_CN", "PERENNIAL_GRASS", "PERENNIAL_GRAMINOID", "PERENNIAL_FORB")], method = "euclidean")
+
+dist.comm.114 <- as.matrix(vegdist(otu_table(physeq.norm.cont)[!is.na(mrm.sig.scaled$soil_CN),]))
+dist.env.114 <- as.matrix(dist.env)[!is.na(mrm.sig.scaled$soil_CN),!is.na(mrm.sig.scaled$soil_CN)]
+dist.site.114 <- dist.site[!is.na(mrm.sig.scaled$soil_CN),!is.na(mrm.sig.scaled$soil_CN)]
+mantel(dist.comm.114, dist.site.114,method="spearman", permutations = 1000)
+mantel(dist.comm.114, dist.env.114,method="spearman", permutations = 1000)
+mantel(dist.site.114, dist.env.114,method="spearman", permutations = 1000)
+mantel.partial(dist.comm.114, dist.site.114, dist.env.114, method="spearman", permutations = 1000)
+mantel.partial(dist.comm.114, dist.env.114, dist.site.114, method="spearman", permutations = 1000)
+
+pdf(paste("fierer.analyses/graphs/dist.multiplot",Sys.Date(),"pdf",sep = "."),width = 10, height = 7)
+png(paste("fierer.analyses/graphs/dist.multiplot",Sys.Date(),"png",sep = "."), width = 600, height = 600)
+par(mfrow=c(2,2))
+dist.site.env <- plot(dist.site.114, dist.env.114,pch=16,cex=0.5,col="black",bty="l",xlab="Spatial distance (km)",ylab="Environmental distance")
+dist.env.comm <- plot(dist.env.114, dist.comm.114, pch=16,cex=0.5,col="black",bty="l",xlab="Environmental distance",ylab="Community bray-curtis dissimilarity")
+dist.site.comm <- plot(dist.site.114, dist.comm.114, pch=16,cex=0.5,col="black",bty="l",xlab="Spatial distance (km)",ylab="Community bray-curtis dissimilarity")
+dev.off()
+
+# test getting only lower diagonal from distance matrix
+# problem is conversion to matrix to remove the missing pH sample. then it autofills the upper half
+
+dist.site.114[upper.tri(dist.site.114)] <- NA
+diag(dist.site.114) <- NA
+dist.site.col <- melt(dist.site.114, varnames = c("row", "col"), value.name="geo")
+dist.site.col <- dist.site.col[!is.na(dist.site.col$geo),]
+dist.site.col$samples <- paste0(dist.site.col$row,"_",dist.site.col$col)
+
+dist.env.114[upper.tri(dist.env.114)] <- NA
+diag(dist.env.114) <- NA
+dist.env.col <- melt(dist.env.114, varnames = c("row", "col"), value.name="env")
+dist.env.col <- dist.env.col[!is.na(dist.env.col$env),]
+dist.env.col$samples <- paste0(dist.env.col$row,"_",dist.env.col$col)
+
+dist.comm.114[upper.tri(dist.comm.114)] <- NA
+diag(dist.comm.114) <- NA
+dist.comm.col <- melt(dist.comm.114, varnames = c("row", "col"), value.name="com")
+dist.comm.col <- dist.comm.col[!is.na(dist.comm.col$com),]
+dist.comm.col$samples <- paste0(dist.comm.col$row,"_",dist.comm.col$col)
+
+test <- merge(merge(dist.site.col[,-c(1:2)],dist.comm.col[,-c(1:2)], by="samples"),dist.env.col[,-c(1:2)], by="samples")
+
+plot(com ~ geo, data=test)
+
+lm.plot <- lm(com ~ geo, data=test)
+summary(lm.plot)
+
+ggplot(test, aes(x = geo, y = com)) + 
+  geom_point() +
+  stat_smooth(method = "lm", col = "red")
+
+vcov(lm.plot)
+sqrt(diag(vcov(lm.plot)))
+cov2cor(vcov(lm.plot))
+cov2cor(vcov(lm.plot))[1, 2]
+
+lm.plot <- lm(geo ~ env, data=test)
+summary(lm.plot)
+
+ggplot(test, aes(x = geo, y = env)) + 
+  geom_point() +
+  stat_smooth(method = "lm", col = "red")
+
+vcov(lm.plot)
+sqrt(diag(vcov(lm.plot)))
+cov2cor(vcov(lm.plot))
+cov2cor(vcov(lm.plot))[1, 2]
+
+(p.d1 <- gplotRegression(lm(com ~ geo, test)))
+ggsave(paste("fierer.analyses/graphs/lm.geo.comm",Sys.Date(),"png",sep = "."),width = 6, height = 5, dpi = 300)
+ggsave(paste("fierer.analyses/graphs/lm.geo.comm",Sys.Date(),"pdf",sep = "."),width = 6, height = 5, dpi = 300)
+(p.d2 <- gplotRegression(lm(env ~ geo, test)))
+ggsave(paste("fierer.analyses/graphs/lm.geo.env",Sys.Date(),"png",sep = "."),width = 6, height = 5, dpi = 300)
+ggsave(paste("fierer.analyses/graphs/lm.geo.env",Sys.Date(),"pdf",sep = "."),width = 6, height = 5, dpi = 300)
+(p.d3 <- gplotRegression(lm(com ~ env, test)))
+
+multiplot <- function(..., plotlist=NULL, file, cols=1, layout=NULL) {
+  library(grid)
+
+  # Make a list from the ... arguments and plotlist
+  plots <- c(list(...), plotlist)
+
+  numPlots = length(plots)
+
+  # If layout is NULL, then use 'cols' to determine layout
+  if (is.null(layout)) {
+    # Make the panel
+    # ncol: Number of columns of plots
+    # nrow: Number of rows needed, calculated from # of cols
+    layout <- matrix(seq(1, cols * ceiling(numPlots/cols)),
+                    ncol = cols, nrow = ceiling(numPlots/cols))
+  }
+
+ if (numPlots==1) {
+    print(plots[[1]])
+
+  } else {
+    # Set up the page
+    grid.newpage()
+    pushViewport(viewport(layout = grid.layout(nrow(layout), ncol(layout))))
+
+    # Make each plot, in the correct location
+    for (i in 1:numPlots) {
+      # Get the i,j matrix positions of the regions that contain this subplot
+      matchidx <- as.data.frame(which(layout == i, arr.ind = TRUE))
+
+      print(plots[[i]], vp = viewport(layout.pos.row = matchidx$row,
+                                      layout.pos.col = matchidx$col))
+    }
+  }
+}
+
+multiplot(p.d1, p.d2, p.d3, cols=3)
+```
+
+### data preparation for mantel test / adonis / dbRDA - OTU level OR genus level
+```{r, cache=T}
+OTU.mat.m <- otu_table(physeq.norm.cont) # otu.norm.cont.genus <- alternatively on genus level
+labels.m <- as.data.frame(labels.num.cmb) # must be numeric
+identical(row.names(labels.m),row.names(OTU.mat.m))
+summary(labels.m)
+labels.m.scaled <- as.data.frame(scale(labels.m)) # normalize numeric metadata
+summary(labels.m.scaled)
+cats <- colnames(labels.m)
+```
+
+#### get environmental mean values per site_code
+```{r, cache=T}
+label4summary <- labels.m # labels.m.scaled / labels.m
+labels.site <- get_variable(physeq.norm.cont)[,c(2,4)] # 45= trt_yn for subsetting control samples
+label4summary$Names <- row.names(label4summary)
+sum <- merge(labels.site, label4summary, by="Names", sort=FALSE)
+  row.names(sum) <- sum$Names
+  sum2 <- sum[,-1]
+
+(means <- aggregate(sum2, list(sum2$site_code), mean))
+# write.table(means, paste("fierer.analyses/statistics/summary_mean_envir",Sys.Date(),"txt",sep = "."), sep="\t", row.names=FALSE)
+```
+
+### for numeric factors find redundancy using SPLM and filter out
+```{r, cache=T}
+pairs(labels.m[,1:25], lower.panel=panel.smooth, upper.panel=panel.cor)
+  # pairs(fierer.Labels.num[,5:10], lower.panel=panel.smooth, upper.panel=panel.cor) #1:6, 7:14, c(7:9,11:14), 15:22, 23:27, 28:32, 33:36
+
+pairs(labels.m[!is.na(labels.m$PercentSand),c("PercentSand", "PercentSilt", "PercentClay")], lower.panel=panel.smooth, upper.panel=panel.cor)
+corr2test <- labels.m[,c("PercentSand", "PercentSilt", "PercentClay")]
+
+corr2test.noNA <- corr2test[complete.cases(corr2test),]
+cor(corr2test.noNA, method="spearman", use = "complete.obs")
+cor.test(corr2test.noNA$PercentClay, corr2test.noNA$PercentSand, method="spearman", exact=FALSE)
+cor.test(corr2test.noNA$PercentClay, corr2test.noNA$PercentSilt, method="spearman", exact=FALSE)
+cor.test(corr2test.noNA$PercentSilt, corr2test.noNA$PercentSand, method="spearman", exact=FALSE)
+```  
+
+### high throughput mantel tests
+
+#### not normalized mantel() - not in manuscript
+```{r, cache=T}
+d <- data.frame(matrix(ncol = 2,nrow = 0))
+for (i in cats) {
+  OTU.mat2test <- OTU.mat.m[!is.na(labels.m[[i]]), ]
+  Labels2test <- labels.m[!is.na(labels.m[[i]]), ]
+  m <- mantel(vegdist(OTU.mat2test), vegdist(Labels2test[[i]], "euclidean"), method="spearman", permutations = 1000)
+  d[i,1] <- m$statistic
+  d[i,2] <- m$signif
+  print(d)
+}
+d$Variable <- rownames(d)
+colnames(d) <- c("Mantel_statistic","p_value","Variable")
+d$p_value_adj <- p.adjust(d$p_value, method = "BH") #"fdr" = Benjamini & Hochberg, "hochberg", "bonferroni"
+plottitle <- "rel.ab., mantel tests, Spearman correlation, BH corrected"
+
+(mantel_num.raw <- ggplot(data=d,aes(x=Variable,y = Mantel_statistic, label = round(p_value_adj,3), fill=Variable)) + ggtitle(plottitle) + geom_bar(stat="identity") + theme(axis.text.x=element_text(angle=90, hjust=0.95, vjust=0.4, size=10), legend.position="none") + geom_text(aes(y = Mantel_statistic + 0.02), size=2, check_overlap = TRUE, position = position_dodge(0.9), vjust = 0))
+```
+
+#### scale() - normalized --------------------------------------------------------------------- in manuscript!!
+```{r, cache=T}
+d2 <- data.frame(matrix(ncol = 2,nrow = 0))
+for (i in cats) {
+  OTU.mat2test <- OTU.mat.m[!is.na(labels.m.scaled[[i]]), ]
+  Labels2test <- labels.m.scaled[!is.na(labels.m.scaled[[i]]), ]
+  m <- mantel(vegdist(OTU.mat2test), vegdist(Labels2test[[i]], "euclidean"), method="spearman", permutations = 1000)
+  d2[i,1] <- m$statistic
+  d2[i,2] <- m$signif
+  print(d2)
+}
+d2$Variable <- rownames(d2)
+colnames(d2) <- c("Mantel_statistic","p_value","Variable")
+d2$p_value_adj <- p.adjust(d2$p_value, method = "BH") #method="fdr", "hochberg", "bonferroni"
+print(d2)
+
+plottitle <- "rel.ab., mantel tests, scale.norm, Spearman correlation, BH corrected"
+
+(mantel_num.norm <- ggplot(data=d2,aes(x=Variable,y = Mantel_statistic, label = round(p_value_adj,3), fill=Variable)) + ggtitle(plottitle) + geom_bar(stat="identity") + theme(axis.text.x=element_text(angle=90, hjust=0.95, vjust=0.4, size=10), legend.position="none") + geom_text(aes(y = Mantel_statistic + 0.02), size=2, check_overlap = TRUE, position = position_dodge(0.9), vjust = 0))
+```
+
+### MRM: Multiple Regression on distance Matrices  (extension of partial mantel) # https://rdrr.io/cran/ecodist/man/MRM.html
+```{r, cache=T}
+# library(ecodist) # for MRM: Multiple Regression on distance Matrices (extended partial mantel test)
+
+# best model based on mantel tests - including soil texture
+ecodist::MRM(vegdist(otu_table(physeq.norm.cont)) ~ 
+      dist(TEMP_WET_Q) + 
+      dist(PercentClay) +
+      dist(MAP_WARM_Q) + 
+      dist(PercentSand) +
+      dist(MAT) +
+      dist(soil_CN) +
+      dist(TEMP_WARM_Q) +
+      dist(MAP_COLD_Q),
+    data=labels.m.scaled, nperm=9999, mrank=TRUE)
+
+# best model based on mantel tests - including soil texture
+ecodist::MRM(vegdist(otu_table(physeq.norm.cont)) ~ 
+      dist(TEMP_WET_Q) + 
+      dist(PercentClay) +
+      dist(MAP_WARM_Q) + 
+      dist(PercentSand) +
+      # dist(MAT) +
+      # dist(soil_CN) +
+      # dist(TEMP_WARM_Q) +
+      dist(MAP_COLD_Q),
+    data=labels.m.scaled, nperm=9999, mrank=TRUE)
+
+# best model based on mantel tests - including soil texture - R2=0.1706
+ecodist::MRM(vegdist(otu_table(physeq.norm.cont)) ~ 
+      dist(TEMP_WET_Q) + 
+      dist(PercentClay) +
+      dist(MAP_WARM_Q) + 
+      dist(PercentSand),# +
+      # dist(MAT) +
+      # dist(soil_CN) +
+      # dist(TEMP_WARM_Q) +
+      # dist(MAP_COLD_Q),
+    data=labels.m.scaled, nperm=9999, mrank=TRUE)
+
+# best model based on mantel tests - without soil texture
+ecodist::MRM(vegdist(otu_table(physeq.norm.cont)) ~ 
+      dist(TEMP_WET_Q) + 
+      dist(MAP_WARM_Q) + 
+      dist(MAT) +
+      dist(soil_CN) +
+      dist(TEMP_WARM_Q) +
+      dist(MAP_COLD_Q),
+      data=labels.m.scaled, nperm=9999, mrank=TRUE)
+
+# best model based on mantel tests - without soil texture - R2=0.1935
+ecodist::MRM(vegdist(otu_table(physeq.norm.cont)) ~ 
+      dist(TEMP_WET_Q) + 
+      dist(MAP_WARM_Q) + 
+      # dist(MAT) +
+      dist(soil_CN),# +
+      # dist(TEMP_WARM_Q) +
+      # dist(MAP_COLD_Q),
+      data=labels.m.scaled, nperm=9999, mrank=TRUE)
+
+# detach("package:ecodist", unload=TRUE)
+```
+
+### MRM: Multiple Regression on distance Matrices    -------------- genus level ------------
+```{r, cache=T}
+library(ecodist) # for MRM: Multiple Regression on distance Matrices (extended partial mantel test)
+
+# best model based on mantel tests - R2=0.0915
+MRM(vegdist(otu_table(physeq.norm.cont.genus)) ~ 
+      dist(soil_pH) +
+      dist(MAP_WET_M) +
+      dist(ppm_Ca) +
+      dist(MAP_WET_Q) +
+      dist(ppm_Cu) +
+      # dist(MAT_RANGE) +
+      dist(MAP_COLD_Q),# +
+      # dist(MAX_TEMP),
+    data=labels.m.scaled, nperm=9999, mrank=TRUE)
+
+# best model based on mantel tests - R2=0.0915
+MRM(vegdist(otu_table(physeq.norm.cont.genus)) ~ 
+      dist(soil_pH) +
+      dist(MAP_WET_M) +
+      dist(ppm_Ca) +
+      dist(MAP_WET_Q) +
+      dist(ppm_Cu) +
+      dist(MAP_COLD_Q),
+    data=labels.m.scaled, nperm=9999, mrank=TRUE)
+
+# as.data.frame(labels.cov.m$ANNUAL_GRASS)
+
+detach("package:ecodist", unload=TRUE)
+```
+
+## ------------------------------------------------------------------------------------------------------------
+
+## vegetation variables
+
+### plant cover analyses
+
+#### run mantel tests - not scaled
+```{r, cache=T}
+labels4mantel <- as.data.frame(labels.cov.m)
+OTU.mat.m <- otu_table(physeq.norm.cont) # physeq.norm.cont.genus
+
+if (identical (as.factor(rownames(OTU.mat.m)), as.factor(rownames(labels4mantel))) == TRUE){
+  d4 <- data.frame(matrix(ncol = 2,nrow = 0))
+for (i in cats.cov) {
+  OTU.mat2test <- OTU.mat.m#[!is.na(labels4mantel[[i]]), ]
+  Labels2test <- labels4mantel#[!is.na(labels4mantel[[i]]), ]
+  m <- mantel(vegdist(OTU.mat2test), vegdist(Labels2test[[i]], "euclidean"), method="spearman", permutations = 1000)
+  d4[i,1] <- m$statistic
+  d4[i,2] <- m$signif
+  print(d4)
+}
+d4$Variable <- rownames(d4)
+colnames(d4) <- c("Mantel_statistic","p_value","Variable")
+print(d4)
+} else {
+    print ("row.names do not fit!!")
+}
+
+# summerized plant cover
+d7 <- d4[c((nrow(d4)-6):nrow(d4)),]
+  d7$p_value_adj <- p.adjust(d7$p_value, method = "BH") #method="fdr", "hochberg", "bonferroni"
+  print(d7)
+
+# single functional plant cover  
+d6 <- d4[-c((nrow(d4)-6):nrow(d4)),]
+  d6$p_value_adj <- p.adjust(d6$p_value, method = "BH") #method="fdr", "hochberg", "bonferroni"
+  print(d6)
+
+plottitle <- "rel.ab., mantel tests, Spearman correlation, BH corrected"
+
+(mantel_nut.num.norm <- ggplot(data=rbind(d7,d6),aes(x=Variable,y = Mantel_statistic, label = round(p_value_adj,3), fill=Variable)) + ggtitle(plottitle) + geom_bar(stat="identity") + theme(axis.text.x=element_text(angle=90, hjust=0.95, vjust=0.4, size=10), legend.position="none") + geom_text(aes(y = Mantel_statistic + 0.02), size=2, check_overlap = TRUE, position = position_dodge(0.9), vjust = 0))
+```
+
+
+#### plant community analyses
+
+##### plant vs. diazo
+
+###### calc correlation diazo & plant comm - mantel    <--------------------------- manuscript
+```{r, cache=T}
+mantel(vegdist(otu_table(physeq.norm.cont)), # physeq.norm.cont.genus
+       vegdist(labels.comm.total, "bray"), method="spearman", permutations = 9999)
+
+d1 <- data.frame(matrix(ncol = 2,nrow = 0))
+(m.diazo.plant <- mantel(vegdist(otu_table(physeq.norm.cont)),
+                         vegdist(labels.comm.total), method="spearman", permutations = 9999))
+  d1[1,1] <- m.diazo.plant$statistic
+  d1[1,2] <- m.diazo.plant$signif
+  d1$Variable <- "plant.community"
+  d1$p_value_adjust <- NA # just to have same # of columns for rbind summary
+colnames(d1) <- c("Mantel_statistic","p_value","Variable", "p_value_adj")
+row.names(d1) <- "plant.community"
+print(d1)
+  
+library(ecodist) # for MRM: Multiple Regression on distance Matrices (extended partial mantel test)
+(test <- MRM(vegdist(otu_table(physeq.norm.cont)) ~ vegdist(labels.comm.total), nperm=9999, mrank=TRUE))
+detach("package:ecodist", unload=TRUE)
+```
+
+###### testing subsetted communities (GRASS, - GRAMINOID - FORB - LEGUME) correlation to diazos <- manuscript
+```{r, cache=T}
+targets <- c("PERENNIAL_GRASS", "PERENNIAL_GRAMINOID", "PERENNIAL_FORB", "PERENNIAL_LEGUME") # taken based on the mantel test beforehand
+
+colnames(master.plantComm)
+levels(master.plantComm$cover_type)
+
+x1 <- data.frame(matrix(ncol = 2,nrow = 0))
+for (k in 1:length(targets)){
+plantComm.tg <- master.plantComm[grep(targets[[k]], master.plantComm$cover_type),] # define tg = target PERENNIAL_GRASS PERENNIAL_GRAMINOID
+
+# create vegetation matrix
+plantComm.tg.m <- dcast(plantComm.tg, site_code_block_plot ~ Taxon, value.var="max_cover")
+plantComm.tg.m[is.na(plantComm.tg.m)] <- 0
+
+labels.comm <- sam.norm.cont[,c(1:6, 45)] # 45= trt_yn for subsetting control samples
+  labels.comm$site_code_block_plot <- paste(labels.comm$site_code, labels.comm$block, labels.comm$plot, sep="_")
+
+labels.comm.0 <- merge(labels.comm, plantComm.tg.m, by="site_code_block_plot", sort=FALSE)
+row.names(labels.comm.0) <- labels.comm.0$Names
+labels.comm.0 <- labels.comm.0[,-c(1:8)] # exclude useless variables
+
+labels.comm.red <- labels.comm.0[,!colSums(labels.comm.0) == 0] # exclude taxa, which have in sum 0 reads
+  rownames(labels.comm.red)
+  colnames(labels.comm.red)
+
+# export labels.comm.red per plant community as object for further tests
+assign(paste0("comm.", targets[[k]]), labels.comm.red)
+
+veg.bray <- vegdist(labels.comm.red, method="bray")
+veg.bray[is.na(veg.bray)] <- 0
+
+(m.tg.0.1 <- mantel(vegdist(otu_table(physeq.norm.cont)), veg.bray, method="spearman", permutations = 1000))
+  x1[k,1] <- m.tg.0.1$statistic
+  x1[k,2] <- m.tg.0.1$signif
+x1$Variable[k] <- targets[[k]]
+print(x1)
+}
+rownames(x1) <- x1$Variable
+colnames(x1) <- c("Mantel_statistic","p_value","Variable")
+x1$p_value_adj <- p.adjust(x1$p_value, method = "BH") #method="fdr", "hochberg", "bonferroni"
+plottitle <- "plant.comm, mantel tests, bray, Spearman correlation, BH corrected"
+print(x1)
+```
+
+### MRM: Multiple Regression on distance Matrices  (extension of partial mantel) # https://rdrr.io/cran/ecodist/man/MRM.html
+
+#### biotic plant cover & community
+```{r, cache=T}
+labels4mantel <- as.data.frame(labels.cov.m)
+
+# best model based mantel tests of plant cover
+ecodist::MRM(vegdist(otu_table(physeq.norm.cont)) ~ 
+      dist(PERENNIAL_FORB) + 
+      dist(PERENNIAL_GRAMINOID) + 
+      dist(PERENNIAL_GRASS) + 
+      dist(PERENNIAL_LEGUME), 
+    data=labels4mantel, nperm=9999, mrank=TRUE)
+
+# best model after reducing factors after MRM models
+ecodist::MRM(vegdist(otu_table(physeq.norm.cont)) ~ 
+      dist(PERENNIAL_FORB) +
+      dist(PERENNIAL_GRAMINOID) +
+      dist(PERENNIAL_GRASS), 
+    data=labels4mantel, nperm=9999, mrank=TRUE)
+
+(best.MRM.model.plant <- ecodist::MRM(vegdist(OTU.mat.m) ~ vegdist(labels.comm.total), nperm=9999, mrank=TRUE))
+```
+
+#### biotic plant cover & community                      ----------------genus level --------------
+```{r, cache=T}
+library(ecodist) # for MRM: Multiple Regression on distance Matrices (extended partial mantel test)
+labels4mantel <- as.data.frame(labels.cov.m)
+
+# best model based mantel tests of plant cover
+MRM(vegdist(otu_table(physeq.norm.cont.genus)) ~ 
+      dist(ANNUAL_FORB) +
+      dist(ANNUAL_LEGUME) +
+      dist(ANNUAL_GRASS), 
+    data=labels4mantel, nperm=9999, mrank=TRUE)
+
+# best model after reducing factors after MRM models
+MRM(vegdist(otu_table(physeq.norm.cont.genus)) ~ 
+      dist(ANNUAL_GRASS), 
+    data=labels4mantel, nperm=9999, mrank=TRUE)
+
+(best.MRM.model.plant <- MRM(vegdist(otu_table(physeq.norm.cont.genus)) ~ vegdist(labels.comm.total), nperm=9999, mrank=TRUE))
+detach("package:ecodist", unload=TRUE)
+```
+
+## ------------------------------------------------------------------------------------------------------------
+
+## plots based on significant factors <- MS Figure 3 
+
+### prepare df including significant factors
+```{r, cache=T}
+mrm.labels <- get_variable(physeq.norm.cont)[,c(1:6, 9, 45)]
+
+identical(rownames(mrm.labels),rownames(labels.m))
+identical(rownames(otu_table(physeq.norm.cont)),rownames(labels.m))
+
+mrm.sig <- cbind(mrm.labels,
+                 labels.m$MAT, # for OTU level
+                 labels.m$MAP_WARM_Q, # for OTU level
+                 labels.m$TEMP_WET_Q, # for OTU level
+                 labels.m$PercentSand, # for OTU level
+                 labels.m$PercentClay, # for OTU level
+                 labels.m$soil_CN, # for OTU level
+                 as.data.frame(labels.cov.m)$PERENNIAL_GRASS, # for OTU level
+                 as.data.frame(labels.cov.m)$PERENNIAL_GRAMINOID, # for OTU level
+                 as.data.frame(labels.cov.m)$PERENNIAL_FORB, # for OTU level
+                 labels.m$soil_pH, # 4genus
+                 labels.m$ppm_Ca, # 4genus
+                 labels.m$ppm_Cu, # 4genus
+                 labels.m$MAP_WET_M, # 4genus
+                 labels.m$MAP_WET_Q, # 4genus
+                 labels.m$MAP_COLD_Q, # 4genus
+                 as.data.frame(labels.cov.m)$ANNUAL_GRASS # 4genus
+                 )
+colnames(mrm.sig) <- c(colnames(mrm.labels),"MAT","MAP_WARM_Q","TEMP_WET_Q",
+                       "PercentSand","PercentClay","soil_CN",
+                       "PERENNIAL_GRASS","PERENNIAL_GRAMINOID","PERENNIAL_FORB",
+                       "soil_pH", "ppm_Ca", "ppm_Cu", "MAP_WET_M", "MAP_WET_Q", "MAP_COLD_Q",
+                       "ANNUAL_GRASS"
+                       )
+mrm.sig.scaled <- cbind(mrm.sig[,1:8],scale(mrm.sig[,c(9:ncol(mrm.sig))]))
+```
+
+#### best biotic & abiotic model - MRM - for manuscript? - some factors are insignificant in combination - keep separated, but still place biotic and abiotic vectors in dbRDA (including all factors)
+```{r}
+# library(ecodist) # for MRM: Multiple Regression on distance Matrices (extended partial mantel test)
+
+# best model based mantel tests for diazotrophs - OTU level
+ecodist::MRM(vegdist(otu_table(physeq.norm.cont)) ~
+      dist(TEMP_WET_Q) +
+      dist(MAP_WARM_Q) +
+      dist(soil_CN) +
+      dist(PERENNIAL_GRASS) +
+      dist(PERENNIAL_FORB) +
+      dist(PERENNIAL_GRAMINOID),
+    data=mrm.sig.scaled, nperm=9999, mrank=TRUE)
+
+# best model based mantel tests for diazotrophs - genus level
+ecodist::MRM(vegdist(otu_table(physeq.norm.cont.genus)) ~
+      dist(soil_pH) +
+      dist(ppm_Ca) +
+      dist(ppm_Cu) +
+      dist(MAP_COLD_Q) +
+      dist(ANNUAL_GRASS),
+    data=mrm.sig.scaled, nperm=9999, mrank=TRUE)
+
+detach("package:ecodist", unload=TRUE)
+```
+
+#### controls ~ environmental numeric factors - big5 + 3x plant.cov - OTU level
+```{r, cache=T}
+plottitle <- "dbRDA ~ big5 + 3x plant.cov; .rel.ab"
+
+OTU2plot <- otu_table(physeq.norm.cont)
+Labels2plot <- mrm.sig.scaled
+
+OTU2plot <- OTU2plot[!is.na(Labels2plot$soil_CN), ]
+Labels2plot <- Labels2plot[!is.na(Labels2plot$soil_CN), ]
+  Labels2plot$soil_CN
+
+spec.label <- as.data.frame(physeq.norm.cont@tax_table) # for plotting OTUs
+
+dim(OTU2plot)
+dim(Labels2plot)
+dim(spec.label)
+
+dbRDA.obj <- capscale((OTU2plot) ~ TEMP_WET_Q + MAP_WARM_Q + soil_CN  + PERENNIAL_GRASS + PERENNIAL_GRAMINOID + PERENNIAL_FORB, data = Labels2plot, distance = "bray") # horn, bray #  # + MAP_COLD_Q # + MAT
+
+dbRDA.scores <- scores(dbRDA.obj)
+explained <- eigenvals( dbRDA.obj )/sum( eigenvals( dbRDA.obj ) ) * 100
+explained <- format( round( explained, 1 ), nsmall = 1 )
+```
+
+##### ... plotting samples - otu <---------------------------------- update manuscript figure
+```{r, cache=T}
+dbRDA.df <- data.frame(id = row.names(dbRDA.scores$sites), dbRDA.scores$sites, site_code = Labels2plot$site_code, continent = Labels2plot$continent)
+colnames(dbRDA.df)[c(2,3)] <- c("CAP1", "PC2")
+
+p <- PlotOrd(dbRDA.df , components = c("CAP1", "PC2"), 
+             treatment = "continent",
+             groups = "continent", 
+             variance = TRUE, connect = FALSE)
+
+p + scale_size_manual(values = c(4, 8)) + ggtitle(plottitle) +
+  xlab(paste("dbRDA 1 (", explained[1], "%)", sep = "")) + 
+  ylab(paste("dbRDA 2 (", explained[2], "%)", sep = ""))
+
+# Now add arrows
+arrowmat  <- scores(dbRDA.obj, choices=1:2, display = "bp") # Now add the species variables as arrows
+arrowdf_bp <- data.frame(labels.arr = rownames(arrowmat), arrowmat) # Add labels.arr, make a data.frame
+
+arrowmat  <- scores(dbRDA.obj, choices=1:2, display = "species") # Now add the environmental variables as arrows
+arrowdf_sp <- data.frame(labels.arr = rownames(arrowmat), arrowmat) # Add labels.arr, make a data.frame
+
+test1 <- arrowdf_sp[arrowdf_sp$CAP1 < -0.25,]
+test2 <- arrowdf_sp[arrowdf_sp$CAP1 > 0.25, ]
+test3 <- arrowdf_sp[arrowdf_sp$CAP2 > 0.25, ]
+test4 <- arrowdf_sp[arrowdf_sp$CAP2 < -0.25, ]
+
+arrowdf_sp.sub <- rbind(test1,test2,test3, test4) # arrowdf_sp / for all
+
+# Define the arrow aesthetic mapping
+arrow_map <- aes(xend = CAP1, 
+    yend = CAP2, 
+    x = 0, 
+    y = 0, 
+    shape = NULL, 
+    color = NULL, 
+    label = labels.arr)
+
+label_map <- aes(x = 1.3 * CAP1, 
+    y = 1.3 * CAP2, 
+    shape = NULL, 
+    color = NULL, 
+    label = labels.arr)
+
+arrowhead = arrow(length = unit(0.02, "npc"))
+
+p + scale_size_manual(values = c(4, 8)) + ggtitle(plottitle) +
+  geom_segment(
+    mapping = arrow_map,
+    size = .5,
+    data = arrowdf_bp,
+    color = "blue",
+    arrow = arrowhead
+  ) +
+  geom_text(
+    mapping = label_map,
+    size = 4,
+    color = "blue",
+    data = arrowdf_bp,
+    show.legend = FALSE
+  )+
+  xlab(paste("dbRDA 1 (", explained[1], "%)", sep = "")) + 
+  ylab(paste("dbRDA 2 (", explained[2], "%)", sep = ""))
+
+ggsave(paste("fierer.analyses/graphs/plot.dbRDA.otu.big3+3Cov.continents.arrow.a0.75.7x6",Sys.Date(),"png",sep = "."),
+       width = 7, height = 5.6, dpi = 300)
+ggsave(paste("fierer.analyses/graphs/plot.dbRDA.otu.big3+3Cov.continents.arrow.a0.75.7x6",Sys.Date(),"pdf",sep = "."),
+       width = 7, height = 5.6, dpi = 300)
+```
+
+##### ... plotting OTUs - otu    <---------------------------------- update manuscript figure
+```{r, cache=T}
+# display taxonomy
+dbRDA.sp.df <- data.frame(id = row.names(dbRDA.scores$species), dbRDA.scores$species, Phylum = spec.label$Phylum, Class = spec.label$Class, Order = spec.label$Order, Family = spec.label$Family, Genus = spec.label$Genus)
+
+colnames(dbRDA.sp.df)[c(2,3)] <- c("CAP1", "PC2")
+
+p <- PlotOrd.single(dbRDA.sp.df , components = c("CAP1", "PC2"), 
+             groups = "Class", 
+             # treatment = "continent", # trt_NNP for double distinction
+             variance = TRUE, connect = FALSE)
+
+p + scale_size_manual(values = c(4, 8)) + ggtitle(plottitle) +
+  xlab(paste("dbRDA 1 (", explained[1], "%)", sep = "")) + 
+  ylab(paste("dbRDA 2 (", explained[2], "%)", sep = ""))
+
+# Now add arrows
+arrowmat  <- scores(dbRDA.obj, choices=1:2, display = "bp") # Now add the species variables as arrows
+arrowdf_bp <- data.frame(labels.arr = rownames(arrowmat), arrowmat) # Add labels.arr, make a data.frame
+
+arrowmat  <- scores(dbRDA.obj, choices=1:2, display = "sites") # Now add the environmental variables as arrows
+arrowdf_st <- data.frame(labels.arr = rownames(arrowmat), arrowmat) # Add labels.arr, make a data.frame
+
+# defining sample area to be includec/excluded # useless for samples!
+arrowdf_st.sub <- arrowdf_st # rbind(test1,test2,test3, test4) # arrowdf_st / for all
+
+# Define the arrow aesthetic mapping
+arrow_map <- aes(xend = CAP1, 
+    yend = CAP2, 
+    x = 0, 
+    y = 0, 
+    shape = NULL, 
+    color = NULL, 
+    label = labels.arr)
+
+label_map <- aes(x = 1.3 * CAP1, 
+    y = 1.3 * CAP2, 
+    shape = NULL, 
+    color = NULL, 
+    label = labels.arr)
+
+arrowhead = arrow(length = unit(0.02, "npc"))
+
+p + scale_size_manual(values = c(4, 8)) + ggtitle(plottitle) +
+
+  geom_segment(
+    mapping = arrow_map,
+    size = .5,
+    data = arrowdf_bp,
+    color = "blue",
+    arrow = arrowhead
+  ) +
+  geom_text(
+    mapping = label_map,
+    size = 4,
+    color = "blue",
+    data = arrowdf_bp,
+    show.legend = FALSE
+  )+
+  xlab(paste("dbRDA 1 (", explained[1], "%)", sep = "")) + 
+  ylab(paste("dbRDA 2 (", explained[2], "%)", sep = ""))
+
+ggsave(paste("fierer.analyses/graphs/plot.dbRDA.otu.big5+3Cov.class.arrow.a0.75.10x6",Sys.Date(),"png",sep = "."),width = 10, height = 6, dpi = 300)
+ggsave(paste("fierer.analyses/graphs/plot.dbRDA.otu.big5+3Cov.class.arrow.a0.75.10x6",Sys.Date(),"pdf",sep = "."),width = 10, height = 6, dpi = 300)
+```
+
+#### controls ~ environmental numeric factors - big4 + 1x plant.cov - genus level
+```{r, cache=T}
+plottitle <- "genus - dbRDA ~ big4 + 1x plant.cov; .rel.ab"
+
+OTU2plot <- otu_table(physeq.norm.cont.genus)
+Labels2plot <- mrm.sig.scaled
+
+OTU2plot <- OTU2plot[!is.na(Labels2plot$ppm_Ca), ]
+Labels2plot <- Labels2plot[!is.na(Labels2plot$ppm_Ca), ]
+  Labels2plot$ppm_Ca
+
+spec.label <- as.data.frame(physeq.norm.cont.genus@tax_table) # for plotting OTUs
+
+dim(OTU2plot)
+dim(Labels2plot)
+dim(spec.label)
+
+dbRDA.obj <- capscale((OTU2plot) ~ soil_pH + ppm_Ca + ppm_Cu + MAP_COLD_Q + ANNUAL_GRASS, data = Labels2plot, distance = "bray") # horn, bray # + WC2.et0
+
+dbRDA.scores <- scores(dbRDA.obj)
+explained <- eigenvals( dbRDA.obj )/sum( eigenvals( dbRDA.obj ) ) * 100
+explained <- format( round( explained, 1 ), nsmall = 1 )
+```
+
+##### ... plotting samples - genus <--------------------------- not in supplementary
+```{r, cache=T}
+dbRDA.df <- data.frame(id = row.names(dbRDA.scores$sites), dbRDA.scores$sites, site_code = Labels2plot$site_code, continent = Labels2plot$continent)
+colnames(dbRDA.df)[c(2,3)] <- c("CAP1", "PC2")
+
+p <- PlotOrd(dbRDA.df , components = c("CAP1", "PC2"), 
+             treatment = "continent",
+             groups = "continent", 
+             variance = TRUE, connect = FALSE)
+
+p + scale_size_manual(values = c(4, 8)) + ggtitle(plottitle) +
+  xlab(paste("dbRDA 1 (", explained[1], "%)", sep = "")) + 
+  ylab(paste("dbRDA 2 (", explained[2], "%)", sep = ""))
+
+# Now add arrows
+arrowmat  <- scores(dbRDA.obj, choices=1:2, display = "bp") # Now add the species variables as arrows
+arrowdf_bp <- data.frame(labels.arr = rownames(arrowmat), arrowmat) # Add labels.arr, make a data.frame
+
+arrowmat  <- scores(dbRDA.obj, choices=1:2, display = "species") # Now add the environmental variables as arrows
+arrowdf_sp <- data.frame(labels.arr = rownames(arrowmat), arrowmat) # Add labels.arr, make a data.frame
+
+# test0 <- arrowdf_sp.sub[arrowdf_sp.sub$CAP1 > -0.15 & !arrowdf_sp.sub$CAP1 < 0.15, ]
+test1 <- arrowdf_sp[arrowdf_sp$CAP1 < -0.25,]
+test2 <- arrowdf_sp[arrowdf_sp$CAP1 > 0.25, ]
+test3 <- arrowdf_sp[arrowdf_sp$CAP2 > 0.25, ]
+test4 <- arrowdf_sp[arrowdf_sp$CAP2 < -0.25, ]
+
+arrowdf_sp.sub <- rbind(test1,test2,test3, test4) # arrowdf_sp / for all
+
+# Define the arrow aesthetic mapping
+arrow_map <- aes(xend = CAP1, 
+    yend = CAP2, 
+    x = 0, 
+    y = 0, 
+    shape = NULL, 
+    color = NULL, 
+    label = labels.arr)
+
+label_map <- aes(x = 1.3 * CAP1, 
+    y = 1.3 * CAP2, 
+    shape = NULL, 
+    color = NULL, 
+    label = labels.arr)
+
+arrowhead = arrow(length = unit(0.02, "npc"))
+
+p + scale_size_manual(values = c(4, 8)) + ggtitle(plottitle) +
+  geom_segment(
+    mapping = arrow_map,
+    size = .5,
+    data = arrowdf_bp,
+    color = "blue",
+    arrow = arrowhead
+  ) +
+  geom_text(
+    mapping = label_map,
+    size = 4,
+    color = "blue",
+    data = arrowdf_bp,
+    show.legend = FALSE
+  )+
+  xlab(paste("dbRDA 1 (", explained[1], "%)", sep = "")) + 
+  ylab(paste("dbRDA 2 (", explained[2], "%)", sep = ""))
+
+ggsave(paste("fierer.analyses/graphs/plot.dbRDA.genus.big5+1Cov.continents.arrow.a0.75",Sys.Date(),"png",sep = "."),width = 10, height = 8, dpi = 300)
+ggsave(paste("fierer.analyses/graphs/plot.dbRDA.genus.big5+1Cov.continents.arrow.a0.75",Sys.Date(),"pdf",sep = "."),width = 10, height = 8, dpi = 300)
+```
+
+##### ... plotting OTUs - genus    <---------------------------------- supplementary
+```{r, cache=T}
+# display taxonomy
+dbRDA.sp.df <- data.frame(id = row.names(dbRDA.scores$species), dbRDA.scores$species, Phylum = spec.label$Phylum, Class = spec.label$Class, Order = spec.label$Order, Family = spec.label$Family, Genus = spec.label$Genus)
+
+colnames(dbRDA.sp.df)[c(2,3)] <- c("CAP1", "PC2")
+
+# display all taxa
+p <- PlotOrd.single(dbRDA.sp.df , components = c("CAP1", "PC2"), 
+             # treatment = "Phylum",
+             groups = "Class",
+             # groups = "Genus",
+        #     treatment = "continent", # trt_NNP for double distinction
+             variance = TRUE, connect = FALSE)
+
+
+p + scale_size_manual(values = c(4, 8)) + ggtitle(plottitle) +
+  xlab(paste("dbRDA 1 (", explained[1], "%)", sep = "")) + 
+  ylab(paste("dbRDA 2 (", explained[2], "%)", sep = ""))
+
+# Now add arrows
+arrowmat  <- scores(dbRDA.obj, choices=1:2, display = "bp") # Now add the species variables as arrows
+arrowdf_bp <- data.frame(labels.arr = rownames(arrowmat), arrowmat) # Add labels.arr, make a data.frame
+
+arrowmat  <- scores(dbRDA.obj, choices=1:2, display = "sites") # Now add the environmental variables as arrows
+arrowdf_st <- data.frame(labels.arr = rownames(arrowmat), arrowmat) # Add labels.arr, make a data.frame
+
+# defining sample area to be includec/excluded # useless for samples!
+arrowdf_st.sub <- arrowdf_st # rbind(test1,test2,test3, test4) # arrowdf_st / for all
+
+# Define the arrow aesthetic mapping
+arrow_map <- aes(xend = CAP1, 
+    yend = CAP2, 
+    x = 0, 
+    y = 0, 
+    shape = NULL, 
+    color = NULL, 
+    label = labels.arr)
+
+label_map <- aes(x = 1.3 * CAP1, 
+    y = 1.3 * CAP2, 
+    shape = NULL, 
+    color = NULL, 
+    label = labels.arr)
+
+arrowhead = arrow(length = unit(0.02, "npc"))
+
+p + scale_size_manual(values = c(4, 8)) + ggtitle(plottitle) +
+  geom_segment(
+    mapping = arrow_map,
+    size = .5,
+    data = arrowdf_bp,
+    color = "blue",
+    arrow = arrowhead
+  ) +
+  geom_text(
+    mapping = label_map,
+    size = 4,
+    color = "blue",
+    data = arrowdf_bp,
+    show.legend = FALSE
+  )+
+  xlab(paste("dbRDA 1 (", explained[1], "%)", sep = "")) + 
+  ylab(paste("dbRDA 2 (", explained[2], "%)", sep = ""))
+
+ggsave(paste("fierer.analyses/graphs/plot.dbRDA.genus.big4+1Cov.class.arrow.a0.75",Sys.Date(),"png",sep = "."),width = 10, height = 6, dpi = 300)
+ggsave(paste("fierer.analyses/graphs/plot.dbRDA.genus.big4+1Cov.class.arrow.a0.75",Sys.Date(),"pdf",sep = "."),width = 10, height = 6, dpi = 300)
+```
+
+##### create mega.norm.cont.sign
+```{r, cache=T}
+# otu level
+norm.otu.tax <- merge(t(otu_table(physeq.norm.cont)),
+                      as.data.frame(physeq.norm.cont@tax_table), by='row.names', all=TRUE)
+rownames(norm.otu.tax) <- norm.otu.tax[,1]
+mega.norm.cont <- merge(mrm.sig.scaled,t(norm.otu.tax), by='row.names', all=TRUE)
+rownames(mega.norm.cont) <- mega.norm.cont[,1]
+mega.norm.cont[1:5,1:5]
+
+# only significant genera - for lm()
+sig.genera <- c("Azorhizobium","Bradyrhizobium", "Calothrix", "Cellulosilyticum", "Desulfatitalea", "Geobacter", "Methyloversatilis", "Nitrospirillum", "Skermanella", "unclassified_Burkholderiales")
+
+(physeq.norm.cont.genus.sig <- subset_taxa(physeq.norm.cont.genus, Genus%in%(sig.genera)))
+
+norm.genus.tax <- merge(t(otu_table(physeq.norm.cont.genus.sig)),
+                      as.data.frame(physeq.norm.cont.genus.sig@tax_table), by='row.names', all=TRUE)
+rownames(norm.genus.tax) <- norm.genus.tax$Genus
+mega.genus.norm.cont <- merge(mrm.sig.scaled,t(norm.genus.tax), by='row.names', all=TRUE)
+rownames(mega.genus.norm.cont) <- mega.genus.norm.cont[,1]
+```
+
+###### ... lm for correlations
+```{r, cache=T}
+multiplot <- function(..., plotlist=NULL, file, cols=1, layout=NULL) {
+  library(grid)
+
+  # Make a list from the ... arguments and plotlist
+  plots <- c(list(...), plotlist)
+
+  numPlots = length(plots)
+
+  # If layout is NULL, then use 'cols' to determine layout
+  if (is.null(layout)) {
+    # Make the panel
+    # ncol: Number of columns of plots
+    # nrow: Number of rows needed, calculated from # of cols
+    layout <- matrix(seq(1, cols * ceiling(numPlots/cols)),
+                    ncol = cols, nrow = ceiling(numPlots/cols))
+  }
+
+ if (numPlots==1) {
+    print(plots[[1]])
+
+  } else {
+    # Set up the page
+    grid.newpage()
+    pushViewport(viewport(layout = grid.layout(nrow(layout), ncol(layout))))
+
+    # Make each plot, in the correct location
+    for (i in 1:numPlots) {
+      # Get the i,j matrix positions of the regions that contain this subplot
+      matchidx <- as.data.frame(which(layout == i, arr.ind = TRUE))
+
+      print(plots[[i]], vp = viewport(layout.pos.row = matchidx$row,
+                                      layout.pos.col = matchidx$col))
+    }
+  }
+}
+
+gplotRegression <- function(fit) {
+  #usage ggplotRegression(lm(real~measured, data=std))
+  require(ggplot2)
+  ggplot(fit$model, aes_(x = as.name(names(fit$model)[2]), y = as.name(names(fit$model)[1]))) +
+    geom_point(size = 4, alpha = 1/3, colour = "deepskyblue4") +
+    stat_smooth(method = "lm", col = "red4") +
+    labs(title = paste("Adj R2 = ",signif(summary(fit)$adj.r.squared, 2),
+                       "; Intercept =",signif(fit$coef[[1]], 2),
+                       "; Slope =",signif(fit$coef[[2]], 2),
+                       "; P =",signif(summary(fit)$coef[2,4], 2))) +
+    scale_y_continuous(limits = c(0, 100)) +
+    theme(plot.title = element_text(size = 7))
+}
+
+sig.variables <- colnames(mega.genus.norm.cont)[c(19:21,24:25)]
+
+for (k in sig.variables){
+  for (i in sig.genera){
+    (p <- gplotRegression(lm(as.numeric(as.matrix(mega.genus.norm.cont[i])) ~ mega.genus.norm.cont[[k]])))
+    ggsave(paste("fierer.analyses/graphs/lm/",k,"/plot.lm.",k,".",i,".png",sep = ""),width = 6, height = 4, dpi = 300)
+  }
+  }
+
+# one lm() plot per factor including all 16 significant taxa 
+for (i in 1:length(sig.variables)){
+  d <- data.frame(matrix(ncol = 3,nrow = 0))
+  colnames(d) <- c("Genus", "p_value", "p_value_adj")
+  for (k in 1:length(sig.genera)){
+    d[k,1] <- sig.genera[k]
+    d[k,2] <- signif(summary(
+      lm(as.numeric(as.matrix(mega.genus.norm.cont[sig.genera[k]])) ~ 
+           as.numeric(as.matrix(mega.genus.norm.cont[sig.variables[i]])))
+    )$coef[2,4], 2)
+    }
+  d$p_value_adj <- p.adjust(d$p_value, method = "BH") #"fdr" = Benjamini & Hochberg, "hochberg", "bonferroni"
+  print(sig.variables[i])
+  print(d)
+  plottitle <- paste(sig.variables[i]," - genus, lm(), scale.norm, BH corrected")
+  (lm.genus <- ggplot(data=d,aes(x=Genus,y = p_value_adj, fill=Genus)) + 
+      ggtitle(plottitle) + geom_bar(stat="identity") + 
+      theme(axis.text.x=element_text(angle=90, hjust=0.95, vjust=0.4, size=10), legend.position="none") +
+      geom_hline(yintercept=0.05))
+  ggsave(paste("fierer.analyses/graphs/lm/plot.lm",sig.variables[i],"BH.norm",Sys.Date(),"png",sep = "."), 
+         width = 6, height = 6, dpi = 300)
+  }
+
+# on lm() plot per taxa including all 5 significant factors 
+for (i in 1:length(sig.genera)){
+  d <- data.frame(matrix(ncol = 3,nrow = 0))
+  colnames(d) <- c("Variables", "p_value", "p_value_adj")
+  for (k in 1:length(sig.variables)){
+    d[k,1] <- sig.variables[k]
+    d[k,2] <- signif(summary(
+      lm(as.numeric(as.matrix(mega.genus.norm.cont[sig.genera[i]])) ~
+           as.numeric(as.matrix(mega.genus.norm.cont[sig.variables[k]])))
+    )$coef[2,4], 2)
+    }
+  d$p_value_adj <- p.adjust(d$p_value, method = "BH") #"fdr" = Benjamini & Hochberg, "hochberg", "bonferroni"
+  print(sig.genera[i])
+  print(d)
+  write.table(d, 
+              paste("fierer.analyses/graphs/lm/stats.sig.taxa/stats.lm",sig.genera[i],"BH.norm",Sys.Date(),"txt",sep = "."),
+              row.names = FALSE, sep="\t")
+
+  plottitle <- paste(sig.genera[i]," - genus, lm(), scale.norm, BH corrected")
+  
+  (lm <- ggplot(data=d,aes(x=Variables,y = p_value_adj, fill=Variables)) + 
+      ggtitle(plottitle) + geom_bar(stat="identity") + 
+      theme(axis.text.x=element_text(angle=90, hjust=0.95, vjust=0.4, size=10), legend.position="none") +
+      geom_hline(yintercept=0.05))
+  
+  ggsave(paste("fierer.analyses/graphs/lm/plot.lm",sig.genera[i],"BH.norm",Sys.Date(),"png",sep = "."), 
+         width = 7, height = 8, dpi = 300)
+  }
+
+```
+
+
+
+
+## ----------------------------------------- junk to check ------------------------------------------
+
+#### controls ~ environmental numeric factors - big5 - excluding NA-samples (!clay/sand!) <- not in MS, because Clay/Sand were hardly measured
+```{r, cache=T}
+plottitle <- "dbRDA ~ big5 + 3x plant.cov; .rel.ab"
+
+OTU2plot <- otu_table(physeq.norm.cont)
+Labels2plot <- mrm.sig.scaled
+
+OTU2plot <- OTU2plot[!is.na(Labels2plot$PercentSand), ]
+Labels2plot <- Labels2plot[!is.na(Labels2plot$PercentSand), ]
+  Labels2plot$PercentSand
+
+spec.label <- as.data.frame(tax_table(physeq.norm.cont)) # for plotting OTUs
+
+dim(OTU2plot)
+dim(Labels2plot)
+dim(spec.label)
+
+dbRDA.obj <- capscale((OTU2plot) ~ MAP_WARM_Q + TEMP_WET_Q + PercentSand + PercentClay + soil_CN + PERENNIAL_GRASS + PERENNIAL_GRAMINOID + PERENNIAL_FORB, data = Labels2plot, distance = "bray") # horn, bray
+
+dbRDA.scores <- scores(dbRDA.obj)
+explained <- eigenvals( dbRDA.obj )/sum( eigenvals( dbRDA.obj ) ) * 100
+explained <- format( round( explained, 1 ), nsmall = 1 )
+
+dbRDA.df <- data.frame(id = row.names(dbRDA.scores$sites), dbRDA.scores$sites, site_code = Labels2plot$site_code, continent = Labels2plot$continent)
+colnames(dbRDA.df)[c(2,3)] <- c("CAP1", "PC2")
+# p <- PlotOrd(dbRDA.df , components = c("CAP1", "PC2"), 
+#              groups = "site_code", 
+#              treatment = "continent",
+#              variance = TRUE, connect = FALSE)
+
+p <- PlotOrd.single(dbRDA.df , components = c("CAP1", "PC2"), 
+             groups = "continent", 
+             # treatment = "continent",
+             variance = TRUE, connect = FALSE)
+
+p + scale_size_manual(values = c(4, 8)) + ggtitle(plottitle) +
+  xlab(paste("dbRDA 1 (", explained[1], "%)", sep = "")) + 
+  ylab(paste("dbRDA 2 (", explained[2], "%)", sep = ""))
+
+# ggsave(paste("fierer.analyses/graphs/plot.dbRDA.big5",Sys.Date(),"png",sep = "."),width = 10, height = 8, dpi = 300)
+# ggsave(paste("fierer.analyses/graphs/plot.dbRDA.big5",Sys.Date(),"pdf",sep = "."),width = 10, height = 8, dpi = 300)
+
+# Now add arrows
+arrowmat  <- scores(dbRDA.obj, choices=1:2, display = "bp") # Now add the species variables as arrows
+arrowdf_bp <- data.frame(labels.arr = rownames(arrowmat), arrowmat) # Add labels.arr, make a data.frame
+
+arrowmat  <- scores(dbRDA.obj, choices=1:2, display = "species") # Now add the environmental variables as arrows
+arrowdf_sp <- data.frame(labels.arr = rownames(arrowmat), arrowmat) # Add labels.arr, make a data.frame
+
+# test0 <- arrowdf_sp.sub[arrowdf_sp.sub$CAP1 > -0.15 & !arrowdf_sp.sub$CAP1 < 0.15, ]
+test1 <- arrowdf_sp[arrowdf_sp$CAP1 < -0.25,]
+test2 <- arrowdf_sp[arrowdf_sp$CAP1 > 0.25, ]
+test3 <- arrowdf_sp[arrowdf_sp$CAP2 > 0.25, ]
+test4 <- arrowdf_sp[arrowdf_sp$CAP2 < -0.25, ]
+
+arrowdf_sp.sub <- rbind(test1,test2,test3, test4) # arrowdf_sp / for all
+
+# Define the arrow aesthetic mapping
+arrow_map <- aes(xend = CAP1, 
+    yend = CAP2, 
+    x = 0, 
+    y = 0, 
+    shape = NULL, 
+    color = NULL, 
+    label = labels.arr)
+
+label_map <- aes(x = 1.3 * CAP1, 
+    y = 1.3 * CAP2, 
+    shape = NULL, 
+    color = NULL, 
+    label = labels.arr)
+
+arrowhead = arrow(length = unit(0.02, "npc"))
+
+p + scale_size_manual(values = c(4, 8)) + ggtitle(plottitle) +
+  # geom_segment(
+  #   mapping = arrow_map,
+  #   size = .5,
+  #   data = arrowdf_sp.sub,
+  #   color = "grey",
+  #   arrow = arrowhead
+  # ) +
+  # geom_text(
+  #   mapping = label_map,
+  #   size = 4,
+  #   data = arrowdf_sp.sub,
+  #   color = "darkred",
+  #   show.legend = FALSE
+  # )+
+  geom_segment(
+    mapping = arrow_map,
+    size = .5,
+    data = arrowdf_bp,
+    color = "blue",
+    arrow = arrowhead
+  ) +
+  geom_text(
+    mapping = label_map,
+    size = 4,
+    color = "blue",
+    data = arrowdf_bp,
+    show.legend = FALSE
+  )+
+  xlab(paste("dbRDA 1 (", explained[1], "%)", sep = "")) + 
+  ylab(paste("dbRDA 2 (", explained[2], "%)", sep = ""))
+
+# ggsave(paste("fierer.analyses/graphs/plot.dbRDA.continents.big5.na.arrow",Sys.Date(),"png",sep = "."),width = 10, height = 8, dpi = 300)
+# ggsave(paste("fierer.analyses/graphs/plot.dbRDA.continents.big5.na.arrow",Sys.Date(),"pdf",sep = "."),width = 10, height = 8, dpi = 300)
+```
+
+#### controls ~ environmental numeric factors - big3 + 3x plant.cov - OTU level <------ in manuscript
+```{r, cache=T}
+plottitle <- "dbRDA ~ big3 + 3x plant.cov; .rel.ab"
+
+OTU2plot <- otu_table(physeq.norm.cont)
+Labels2plot2 <- mrm.sig.scaled
+
+OTU2plot <- OTU2plot[!is.na(Labels2plot2$soil_CN), ]
+Labels2plot2 <- Labels2plot2[!is.na(Labels2plot2$soil_CN), ]
+  Labels2plot2$soil_CN
+
+# spec.label <- as.data.frame(tax_table(physeq.norm.cont)) # for plotting OTUs
+spec.label <- as.data.frame(physeq.norm.cont@tax_table) # for plotting OTUs
+
+dim(OTU2plot)
+dim(Labels2plot2)
+dim(spec.label)
+
+dbRDA.obj <- capscale((OTU2plot) ~ MAP_WARM_Q + TEMP_WET_Q + soil_CN + PERENNIAL_GRASS + PERENNIAL_GRAMINOID + PERENNIAL_FORB, data = Labels2plot2, distance = "bray") # horn, bray
+
+dbRDA.scores <- scores(dbRDA.obj)
+explained <- eigenvals( dbRDA.obj )/sum( eigenvals( dbRDA.obj ) ) * 100
+explained <- format( round( explained, 1 ), nsmall = 1 )
+```
+
+##### ... plotting samples - otu <---------------------------------- update manuscript figure
+```{r, cache=T}
+dbRDA.df <- data.frame(id = row.names(dbRDA.scores$sites), dbRDA.scores$sites, site_code = Labels2plot2$site_code, continent = Labels2plot2$continent)
+colnames(dbRDA.df)[c(2,3)] <- c("CAP1", "PC2")
+
+p <- PlotOrd.single(dbRDA.df , components = c("CAP1", "PC2"), 
+             groups = "continent", 
+             variance = TRUE, connect = FALSE)
+
+p + scale_size_manual(values = c(4, 8)) + ggtitle(plottitle) +
+  xlab(paste("dbRDA 1 (", explained[1], "%)", sep = "")) + 
+  ylab(paste("dbRDA 2 (", explained[2], "%)", sep = ""))
+
+# Now add arrows
+arrowmat  <- scores(dbRDA.obj, choices=1:2, display = "bp") # Now add the species variables as arrows
+arrowdf_bp <- data.frame(labels.arr = rownames(arrowmat), arrowmat) # Add labels.arr, make a data.frame
+
+arrowmat  <- scores(dbRDA.obj, choices=1:2, display = "species") # Now add the environmental variables as arrows
+arrowdf_sp <- data.frame(labels.arr = rownames(arrowmat), arrowmat) # Add labels.arr, make a data.frame
+
+# test0 <- arrowdf_sp.sub[arrowdf_sp.sub$CAP1 > -0.15 & !arrowdf_sp.sub$CAP1 < 0.15, ]
+test1 <- arrowdf_sp[arrowdf_sp$CAP1 < -0.25,]
+test2 <- arrowdf_sp[arrowdf_sp$CAP1 > 0.25, ]
+test3 <- arrowdf_sp[arrowdf_sp$CAP2 > 0.25, ]
+test4 <- arrowdf_sp[arrowdf_sp$CAP2 < -0.25, ]
+
+arrowdf_sp.sub <- rbind(test1,test2,test3, test4) # arrowdf_sp / for all
+
+# Define the arrow aesthetic mapping
+arrow_map <- aes(xend = CAP1, 
+    yend = CAP2, 
+    x = 0, 
+    y = 0, 
+    shape = NULL, 
+    color = NULL, 
+    label = labels.arr)
+
+label_map <- aes(x = 1.3 * CAP1, 
+    y = 1.3 * CAP2, 
+    shape = NULL, 
+    color = NULL, 
+    label = labels.arr)
+
+arrowhead = arrow(length = unit(0.02, "npc"))
+
+p + scale_size_manual(values = c(4, 8)) + ggtitle(plottitle) +
+  geom_segment(
+    mapping = arrow_map,
+    size = .5,
+    data = arrowdf_bp,
+    color = "blue",
+    arrow = arrowhead
+  ) +
+  geom_text(
+    mapping = label_map,
+    size = 4,
+    color = "blue",
+    data = arrowdf_bp,
+    show.legend = FALSE
+  )+
+  xlab(paste("dbRDA 1 (", explained[1], "%)", sep = "")) + 
+  ylab(paste("dbRDA 2 (", explained[2], "%)", sep = ""))
+
+# ggsave(paste("fierer.analyses/graphs/plot.dbRDA.otu.big3+3Cov.continents.arrow.a0.75",Sys.Date(),"png",sep = "."),width = 10, height = 8, dpi = 300)
+# ggsave(paste("fierer.analyses/graphs/plot.dbRDA.otu.big3+3Cov.continents.arrow.a0.75",Sys.Date(),"pdf",sep = "."),width = 10, height = 8, dpi = 300)
+```
+
+##### ... plotting OTUs - otu    <---------------------------------- update manuscript figure
+```{r, cache=T}
+# display taxonomy
+dbRDA.sp.df <- data.frame(id = row.names(dbRDA.scores$species), dbRDA.scores$species, Phylum = spec.label$Phylum, Class = spec.label$Class, Order = spec.label$Order, Family = spec.label$Family, Genus = spec.label$Genus)
+
+
+colnames(dbRDA.sp.df)[c(2,3)] <- c("CAP1", "PC2")
+# p <- PlotOrd(dbRDA.df , components = c("CAP1", "PC2"),
+#              groups = "Genus",
+#              treatment = "continent", # trt_NNP for double distinction
+#              variance = TRUE, connect = FALSE)
+
+p <- PlotOrd.single(dbRDA.sp.df , components = c("CAP1", "PC2"), 
+             groups = "Class", 
+        #     treatment = "continent", # trt_NNP for double distinction
+             variance = TRUE, connect = FALSE)
+
+p + scale_size_manual(values = c(4, 8)) + ggtitle(plottitle) +
+  xlab(paste("dbRDA 1 (", explained[1], "%)", sep = "")) + 
+  ylab(paste("dbRDA 2 (", explained[2], "%)", sep = ""))
+
+# Now add arrows
+arrowmat  <- scores(dbRDA.obj, choices=1:2, display = "bp") # Now add the species variables as arrows
+arrowdf_bp <- data.frame(labels.arr = rownames(arrowmat), arrowmat) # Add labels.arr, make a data.frame
+
+arrowmat  <- scores(dbRDA.obj, choices=1:2, display = "sites") # Now add the environmental variables as arrows
+arrowdf_st <- data.frame(labels.arr = rownames(arrowmat), arrowmat) # Add labels.arr, make a data.frame
+
+# defining sample area to be includec/excluded # useless for samples!
+arrowdf_st.sub <- arrowdf_st # rbind(test1,test2,test3, test4) # arrowdf_st / for all
+
+# Define the arrow aesthetic mapping
+arrow_map <- aes(xend = CAP1, 
+    yend = CAP2, 
+    x = 0, 
+    y = 0, 
+    shape = NULL, 
+    color = NULL, 
+    label = labels.arr)
+
+label_map <- aes(x = 1.3 * CAP1, 
+    y = 1.3 * CAP2, 
+    shape = NULL, 
+    color = NULL, 
+    label = labels.arr)
+
+arrowhead = arrow(length = unit(0.02, "npc"))
+
+p + scale_size_manual(values = c(4, 8)) + ggtitle(plottitle) +
+  # geom_segment(
+  #   mapping = arrow_map,
+  #   size = .5,
+  #   data = arrowdf_st.sub,
+  #   color = "grey",
+  #   arrow = arrowhead
+  # ) +
+  # geom_text(
+  #   mapping = label_map,
+  #   size = 4,
+  #   data = arrowdf_st.sub,
+  #   color = "darkred",
+  #   show.legend = FALSE
+  # )+
+  geom_segment(
+    mapping = arrow_map,
+    size = .5,
+    data = arrowdf_bp,
+    color = "blue",
+    arrow = arrowhead
+  ) +
+  geom_text(
+    mapping = label_map,
+    size = 4,
+    color = "blue",
+    data = arrowdf_bp,
+    show.legend = FALSE
+  )+
+  xlab(paste("dbRDA 1 (", explained[1], "%)", sep = "")) + 
+  ylab(paste("dbRDA 2 (", explained[2], "%)", sep = ""))
+
+# ggsave(paste("fierer.analyses/graphs/plot.dbRDA.otu.big3+3Cov.class.arrow.a0.75.10x6",Sys.Date(),"png",sep = "."),width = 10, height = 6, dpi = 300)
+# ggsave(paste("fierer.analyses/graphs/plot.dbRDA.otu.big3+3Cov.class.arrow.a0.75.10x6",Sys.Date(),"pdf",sep = "."),width = 10, height = 6, dpi = 300)
+```
+
+#### controls ~ big3 abiotic + 3 plant Covs - tax glom - genus
+```{r, cache=T}
+physeq.norm.cont
+
+(physeq.norm.cont.genus <- tax_glom(physeq.norm.cont, taxrank="Genus"))
+ntaxa(physeq.norm.cont); ntaxa(physeq.norm.cont.genus) # taxa before and after tax_glom
+
+label4summary <- labels.m # labels.m.scaled / labels.m
+labels.site <- get_variable(physeq.norm.cont.genus)[,c(2,4,9)] 
+label4summary$Names <- row.names(label4summary)
+sum <- merge(labels.site, label4summary, by="Names", sort=FALSE)
+  row.names(sum) <- sum$Names
+  sum2 <- sum[,-1]
+
+class(sum2$PercentSand)
+# MAP_WARM_Q , TEMP_WET_Q , PercentClay , PercentSand , soil_CN , MAP_WET_M , MAP_WET_Q
+
+plottitle <- "dbRDA ~ big3+3Cov; .rel.ab - tax_glom - genus"
+
+OTU2plot <- as(otu_table(physeq.norm.cont.genus), "matrix") # OTUs.cont
+class(OTU2plot)
+Labels <- sum2
+labels.cov.2 <- labels.cov.0
+# t.plant.comm.2 <- t.plant.comm.sort.red
+OTU2plot <- OTU2plot[!is.na(Labels$ppm_Ca), ]
+labels.cov.2 <- labels.cov.2[!is.na(Labels$ppm_Ca), ]
+  labels.cov.2$ANNUAL_GRASS
+# t.plant.comm.2 <- t.plant.comm.2[!is.na(Labels$soil_CN), ]
+Labels <- Labels[!is.na(Labels$ppm_Ca), ]
+  Labels$soil_pH
+  Labels$ppm_Ca
+  Labels$ppm_Cu
+  Labels$WC2.et0
+# dim(t.plant.comm.2)
+spec.label <- as.data.frame(physeq.norm.cont.genus@tax_table@.Data) # for plotting OTUs
+
+dbRDA.obj <- capscale((OTU2plot) ~ soil_pH + ppm_Ca + ppm_Cu + WC2.et0 + labels.cov.2$ANNUAL_GRASS, data = Labels, distance = "bray") # horn, bray # ~ live_mass, # trt_NPP for P graph
+
+dbRDA.scores <- scores(dbRDA.obj)
+explained <- eigenvals( dbRDA.obj )/sum( eigenvals( dbRDA.obj ) ) * 100
+explained <- format( round( explained, 1 ), nsmall = 1 )
+```
+
+##### ... plotting samples - genus
+```{r, cache=T}
+dbRDA.df <- data.frame(id = row.names(dbRDA.scores$sites), dbRDA.scores$sites, site_code = Labels$site_code, continent = Labels$continent)
+colnames(dbRDA.df)[c(2,3)] <- c("CAP1", "PC2")
+# p <- PlotOrd(dbRDA.df , components = c("CAP1", "PC2"), 
+#              groups = "site_code", 
+#              treatment = "continent", # trt_NNP for double distinction
+#              variance = TRUE, connect = FALSE)
+
+p <- PlotOrd.single(dbRDA.df , components = c("CAP1", "PC2"), 
+             groups = "continent", 
+        #     treatment = "continent", # trt_NNP for double distinction
+             variance = TRUE, connect = FALSE)
+
+p + scale_size_manual(values = c(4, 8)) + ggtitle(plottitle) +
+  xlab(paste("dbRDA 1 (", explained[1], "%)", sep = "")) + 
+  ylab(paste("dbRDA 2 (", explained[2], "%)", sep = ""))
+
+# ggsave(paste("fierer.analyses/graphs/genus.plot.dbRDA.big4+1Cov",Sys.Date(),"png",sep = "."),width = 10, height = 8, dpi = 300)
+# ggsave(paste("fierer.analyses/graphs/genus.plot.dbRDA.big4+1Cov",Sys.Date(),"pdf",sep = "."),width = 10, height = 8, dpi = 300)
+
+# Now add arrows
+arrowmat  <- scores(dbRDA.obj, choices=1:2, display = "bp") # Now add the species variables as arrows
+arrowdf_bp <- data.frame(labels.arr = rownames(arrowmat), arrowmat) # Add labels.arr, make a data.frame
+
+arrowmat  <- scores(dbRDA.obj, choices=1:2, display = "species") # Now add the environmental variables as arrows
+arrowdf_sp <- data.frame(labels.arr = rownames(arrowmat), arrowmat) # Add labels.arr, make a data.frame
+
+# test0 <- arrowdf_sp.sub[arrowdf_sp.sub$CAP1 > -0.15 & !arrowdf_sp.sub$CAP1 < 0.15, ]
+test1 <- arrowdf_sp[arrowdf_sp$CAP1 < -0.25,]
+test2 <- arrowdf_sp[arrowdf_sp$CAP1 > 0.25, ]
+test3 <- arrowdf_sp[arrowdf_sp$CAP2 > 0.25, ]
+test4 <- arrowdf_sp[arrowdf_sp$CAP2 < -0.25, ]
+
+arrowdf_sp.sub <- rbind(test1,test2,test3, test4) # arrowdf_sp / for all
+
+# Define the arrow aesthetic mapping
+arrow_map <- aes(xend = CAP1, 
+    yend = CAP2, 
+    x = 0, 
+    y = 0, 
+    shape = NULL, 
+    color = NULL, 
+    label = labels.arr)
+
+label_map <- aes(x = 1.3 * CAP1, 
+    y = 1.3 * CAP2, 
+    shape = NULL, 
+    color = NULL, 
+    label = labels.arr)
+
+arrowhead = arrow(length = unit(0.02, "npc"))
+
+p + scale_size_manual(values = c(4, 8)) + ggtitle(plottitle) +
+  # geom_segment(
+  #   mapping = arrow_map,
+  #   size = .5,
+  #   data = arrowdf_sp.sub,
+  #   color = "grey",
+  #   arrow = arrowhead
+  # ) +
+  # geom_text(
+  #   mapping = label_map,
+  #   size = 4,
+  #   data = arrowdf_sp.sub,
+  #   color = "darkred",
+  #   show.legend = FALSE
+  # )+
+  geom_segment(
+    mapping = arrow_map,
+    size = .5,
+    data = arrowdf_bp,
+    color = "blue",
+    arrow = arrowhead
+  ) +
+  geom_text(
+    mapping = label_map,
+    size = 4,
+    color = "blue",
+    data = arrowdf_bp,
+    show.legend = FALSE
+  )+
+  xlab(paste("dbRDA 1 (", explained[1], "%)", sep = "")) + 
+  ylab(paste("dbRDA 2 (", explained[2], "%)", sep = ""))
+
+# ggsave(paste("fierer.analyses/graphs/genus.plot.dbRDA.big4+1Cov.continents.na.arrow.a0.75",Sys.Date(),"png",sep = "."),width = 10, height = 8, dpi = 300)
+# ggsave(paste("fierer.analyses/graphs/genus.plot.dbRDA.big4+1Cov.continents.na.arrow.a0.75",Sys.Date(),"pdf",sep = "."),width = 10, height = 8, dpi = 300)
+```
+
+##### ... plotting genera - genus
+```{r, cache=T}
+# display taxonomy
+dbRDA.sp.df <- data.frame(id = row.names(dbRDA.scores$species), dbRDA.scores$species, Phylum = spec.label$Phylum, Class = spec.label$Class, Order = spec.label$Order, Genus = spec.label$Genus)
+
+
+colnames(dbRDA.sp.df)[c(2,3)] <- c("CAP1", "PC2")
+# p <- PlotOrd(dbRDA.df , components = c("CAP1", "PC2"),
+#              groups = "Genus",
+#              treatment = "continent", # trt_NNP for double distinction
+#              variance = TRUE, connect = FALSE)
+
+p <- PlotOrd.single(dbRDA.sp.df , components = c("CAP1", "PC2"), 
+             groups = "Class", 
+        #     treatment = "continent", # trt_NNP for double distinction
+             variance = TRUE, connect = FALSE)
+
+p + scale_size_manual(values = c(4, 8)) + ggtitle(plottitle) +
+  xlab(paste("dbRDA 1 (", explained[1], "%)", sep = "")) + 
+  ylab(paste("dbRDA 2 (", explained[2], "%)", sep = ""))
+
+# Now add arrows
+arrowmat  <- scores(dbRDA.obj, choices=1:2, display = "bp") # Now add the species variables as arrows
+arrowdf_bp <- data.frame(labels.arr = rownames(arrowmat), arrowmat) # Add labels.arr, make a data.frame
+
+arrowmat  <- scores(dbRDA.obj, choices=1:2, display = "sites") # Now add the environmental variables as arrows
+arrowdf_st <- data.frame(labels.arr = rownames(arrowmat), arrowmat) # Add labels.arr, make a data.frame
+
+# defining sample area to be includec/excluded # useless for samples!
+# test1 <- arrowdf_st[arrowdf_st$CAP1 < -0.25,]
+# test2 <- arrowdf_st[arrowdf_st$CAP1 > 0.25, ]
+# test3 <- arrowdf_st[arrowdf_st$CAP2 > 0.25, ]
+# test4 <- arrowdf_st[arrowdf_st$CAP2 < -0.25, ]
+arrowdf_st.sub <- arrowdf_st # rbind(test1,test2,test3, test4) # arrowdf_st / for all
+
+# Define the arrow aesthetic mapping
+arrow_map <- aes(xend = CAP1, 
+    yend = CAP2, 
+    x = 0, 
+    y = 0, 
+    shape = NULL, 
+    color = NULL, 
+    label = labels.arr)
+
+label_map <- aes(x = 1.3 * CAP1, 
+    y = 1.3 * CAP2, 
+    shape = NULL, 
+    color = NULL, 
+    label = labels.arr)
+
+arrowhead = arrow(length = unit(0.02, "npc"))
+
+p + scale_size_manual(values = c(4, 8)) + ggtitle(plottitle) +
+  # geom_segment(
+  #   mapping = arrow_map,
+  #   size = .5,
+  #   data = arrowdf_st.sub,
+  #   color = "grey",
+  #   arrow = arrowhead
+  # ) +
+  # geom_text(
+  #   mapping = label_map,
+  #   size = 4,
+  #   data = arrowdf_st.sub,
+  #   color = "darkred",
+  #   show.legend = FALSE
+  # )+
+  geom_segment(
+    mapping = arrow_map,
+    size = .5,
+    data = arrowdf_bp,
+    color = "blue",
+    arrow = arrowhead
+  ) +
+  geom_text(
+    mapping = label_map,
+    size = 4,
+    color = "blue",
+    data = arrowdf_bp,
+    show.legend = FALSE
+  )+
+  xlab(paste("dbRDA 1 (", explained[1], "%)", sep = "")) + 
+  ylab(paste("dbRDA 2 (", explained[2], "%)", sep = ""))
+
+# ggsave(paste("fierer.analyses/graphs/genus.plot.dbRDA.big4+1Cov.class.na.arrow.a0.75",Sys.Date(),"png",sep = "."),width = 10, height = 8, dpi = 300)
+# ggsave(paste("fierer.analyses/graphs/genus.plot.dbRDA.big4+1Cov.class.na.arrow.a0.75",Sys.Date(),"pdf",sep = "."),width = 10, height = 8, dpi = 300)
+```
+
+## ------------------------------------------------------------------------------------------------------------
+
+# are zehr clusters in general or cluster III w/ or w/o Geobacter correlating with precipitation parameters?
+
+## phyloseq - only controls; glom. tax to zehr cluster 
+```{r, cache=T}
+physeq.cont3 <- physeq.norm.cont
+
+tax_table(physeq.cont3) <- tax_table(physeq.cont3)[,7:8] # use only zehr classification
+
+(physeq.cont3.cluster <- tax_glom(physeq.cont3, taxrank="Zehr.Cluster")) # glom to only zehr clusters
+ntaxa(physeq.cont3); ntaxa(physeq.cont3.cluster)
+tax_table(physeq.cont3.cluster)
+
+sam.cont3 <- get_variable(physeq.cont3.cluster) 
+tax.cont3 <- as.data.frame(as(tax_table(physeq.cont3.cluster), "matrix"))
+otu.cont3 <- as.data.frame(as(otu_table(physeq.cont3.cluster), "matrix"))
+colnames(otu.cont3) <- paste0("clu.", tax.cont3$Zehr.Cluster)
+```
+
+### high throughput mantel tests
+
+#### scale() - normalized
+```{r, cache=T}
+identical(rownames(labels.m.scaled), rownames(otu.cont3))
+
+c1 <- data.frame(matrix(ncol = 2,nrow = 0))
+for (i in cats) {
+  OTU.mat2test <- otu.cont3[!is.na(labels.m.scaled[[i]]), ]
+  Labels2test <- labels.m.scaled[!is.na(labels.m.scaled[[i]]), ]
+  m <- mantel(vegdist(OTU.mat2test), vegdist(Labels2test[[i]], "euclidean"), method="spearman", permutations = 1000)
+  c1[i,1] <- m$statistic
+  c1[i,2] <- m$signif
+  print(c1)
+}
+c1$Variable <- rownames(c1)
+colnames(c1) <- c("Mantel_statistic","p_value","Variable")
+c1$p_value_adj <- p.adjust(c1$p_value, method = "BH") #method="fdr", "hochberg", "bonferroni"
+
+# write.table(c1, paste("fierer.analyses/statistics/cluster.mantel.spearman.BH.norm" ,Sys.Date(),"txt",sep = "."), sep="\t", row.names=FALSE)
+
+plottitle <- "cluster.rel.ab., mantel tests, scale.norm, Spearman correlation, BH corrected"
+
+(mantel_num.norm <- ggplot(data=c1,aes(x=Variable,y = Mantel_statistic, label = round(p_value_adj,3), fill=Variable)) + ggtitle(plottitle) + geom_bar(stat="identity") + theme(axis.text.x=element_text(angle=90, hjust=0.95, vjust=0.4, size=10), legend.position="none") + geom_text(aes(y = Mantel_statistic + 0.02), size=2, check_overlap = TRUE, position = position_dodge(0.9), vjust = 0))
+
+# ggsave(paste("fierer.analyses/graphs/cluster.mantel.spearman.BH.norm",Sys.Date(),"png",sep = "."),width = 12, height = 10, dpi = 300)
+# ggsave(paste("fierer.analyses/graphs/cluster.mantel.spearman.BH.norm",Sys.Date(),"pdf",sep = "."),width = 12, height = 10, dpi = 300)
+```
+
+### change ClusterI-Geobacter to cluster III
+```{r, cache=T}
+physeq.cont4 <- physeq.norm.cont
+tax.cont4 <- as.data.frame(as(tax_table(physeq.cont4), "matrix"))
+tax.cont4$CluGen <- paste0(tax.cont4$Zehr.Cluster, ".", tax.cont4$Genus)
+which(tax.cont4$CluGen == "1.p1l2.Geobacter")
+tax.cont4$Zehr.Cluster[which(tax.cont4$CluGen == "1.p1l2.Geobacter")] <- 3
+dim(tax.cont4)
+class(tax.cont4)
+
+testGeob <- tax.cont4[grep("p1l2.Geobacter", tax.cont4$Genus),] # test if reclassifying worked out
+
+(physeq.1Geob <- phyloseq(otu_table(physeq.cont4), sample_data(physeq.cont4), tax_table(as.matrix(tax.cont4))))
+```
+
+#### phyloseq - glom Geob1.manipulated file to Cluster
+```{r, cache=T}
+physeq.1Geob2 <- physeq.1Geob
+
+tax_table(physeq.1Geob2) <- tax_table(physeq.1Geob2)[,7:8] # use only zehr classification
+
+(physeq.glom <- tax_glom(physeq.1Geob2, taxrank="Zehr.Cluster")) # glom to only zehr clusters
+ntaxa(physeq.1Geob2); ntaxa(physeq.glom)
+tax_table(physeq.glom)
+
+sam.1Geob3 <- get_variable(physeq.glom)
+tax.1Geob3 <- as.data.frame(as(tax_table(physeq.glom), "matrix"))
+otu.1Geob3 <- as.data.frame(as(otu_table(physeq.glom), "matrix"))
+colnames(otu.1Geob3) <- paste0("clu.", tax.1Geob3$Zehr.Cluster)
+```
+
+##### lm from Roey <------------------------------------------ manuscript
+```{r, cache=T}
+## von Roey
+multiplot <- function(..., plotlist=NULL, file, cols=1, layout=NULL) {
+  library(grid)
+
+  # Make a list from the ... arguments and plotlist
+  plots <- c(list(...), plotlist)
+
+  numPlots = length(plots)
+
+  # If layout is NULL, then use 'cols' to determine layout
+  if (is.null(layout)) {
+    # Make the panel
+    # ncol: Number of columns of plots
+    # nrow: Number of rows needed, calculated from # of cols
+    layout <- matrix(seq(1, cols * ceiling(numPlots/cols)),
+                    ncol = cols, nrow = ceiling(numPlots/cols))
+  }
+
+ if (numPlots==1) {
+    print(plots[[1]])
+
+  } else {
+    # Set up the page
+    grid.newpage()
+    pushViewport(viewport(layout = grid.layout(nrow(layout), ncol(layout))))
+
+    # Make each plot, in the correct location
+    for (i in 1:numPlots) {
+      # Get the i,j matrix positions of the regions that contain this subplot
+      matchidx <- as.data.frame(which(layout == i, arr.ind = TRUE))
+
+      print(plots[[i]], vp = viewport(layout.pos.row = matchidx$row,
+                                      layout.pos.col = matchidx$col))
+    }
+  }
+}
+
+gplotRegression <- function(fit) {
+  #usage ggplotRegression(lm(real~measured, data=std))
+  require(ggplot2)
+  ggplot(fit$model, aes_(x = as.name(names(fit$model)[2]), y = as.name(names(fit$model)[1]))) +
+    geom_point(size = 4, alpha = 1/3, colour = "deepskyblue4") +
+    stat_smooth(method = "lm", col = "red4") +
+    labs(title = paste("Adj R2 = ",signif(summary(fit)$adj.r.squared, 2),
+                       "; Intercept =",signif(fit$coef[[1]], 2),
+                       "; Slope =",signif(fit$coef[[2]], 2),
+                       "; P =",signif(summary(fit)$coef[2,4], 2))) +
+    scale_y_continuous(limits = c(0, 100)) +
+    theme(plot.title = element_text(size = 7))
+}
+
+com2test <- cbind(otu.1Geob3, labels.m) # otu.cont3 before Geobacter modification; labels.m.scaled
+
+lm(clu.3 ~ MAP_WARM_Q, data=com2test)
+
+(p1 <- gplotRegression(lm(clu.1 ~ MAP_WARM_Q, data=com2test)))
+(p2 <- gplotRegression(lm(clu.2 ~ MAP_WARM_Q, data=com2test)))
+(p3 <- gplotRegression(lm(clu.3 ~ MAP_WARM_Q, data=com2test)))
+(p4 <- gplotRegression(lm(clu.4 ~ MAP_WARM_Q, data=com2test)))
+
+multiplot(p1, p3, p2, p4, cols=2)
+
+# save via export w:h = 7:6
+
+(p1 <- gplotRegression(lm(clu.1 ~ TEMP_WET_Q, data=com2test)))
+(p2 <- gplotRegression(lm(clu.2 ~ TEMP_WET_Q, data=com2test)))
+(p3 <- gplotRegression(lm(clu.3 ~ TEMP_WET_Q, data=com2test)))
+(p4 <- gplotRegression(lm(clu.4 ~ TEMP_WET_Q, data=com2test)))
+
+multiplot(p1, p3, p2, p4, cols=2)
+
+summary(lm(clu.3 ~ MAP_WARM_Q*TEMP_WET_Q, data=com2test))
+
+lm(clu.3 ~ soil_CN, data=com2test)
+
+(p1 <- gplotRegression(lm(clu.1 ~ soil_CN, data=com2test)))
+(p2 <- gplotRegression(lm(clu.2 ~ soil_CN, data=com2test)))
+(p3 <- gplotRegression(lm(clu.3 ~ soil_CN, data=com2test)))
+(p4 <- gplotRegression(lm(clu.4 ~ soil_CN, data=com2test)))
+
+multiplot(p1, p3, p2, p4, cols=2)
+
+(p1 <- gplotRegression(lm(clu.1 ~ MAP, data=com2test)))
+(p2 <- gplotRegression(lm(clu.2 ~ MAP, data=com2test)))
+(p3 <- gplotRegression(lm(clu.3 ~ MAP, data=com2test)))
+(p4 <- gplotRegression(lm(clu.4 ~ MAP, data=com2test)))
+
+multiplot(p1, p3, p2, p4, cols=2)
+
+# correlation test all big3 abiotic env. markers and cluster II/Geob
+## combine the 3 environmental variables
+identical(rownames(labels.m), rownames(labels.nut.m))
+
+big3var <- cbind(labels.m$TEMP_WET_Q, labels.m$MAP_WARM_Q, labels.m$WC2.MAP, labels.m$WC2.ai_calc, as.data.frame(labels.nut.m)$soil_CN)
+rownames(big3var) <- rownames(labels.m)
+colnames(big3var) <- c("TEMP_WET_Q", "MAP_WARM_Q", "WC2.MAP", "WC2.AI", "soil_CN")
+
+big3var.scaled <- as.data.frame(scale(big3var))
+# big3var.scaled <- as.data.frame(big3var)
+
+## cbind clusters
+identical(rownames(otu.1Geob3), rownames(big3var.scaled))
+big32test <- cbind(otu.1Geob3, big3var.scaled) # otu.cont3 before Geobacter modification
+
+## calc linear model
+summary(lm(clu.3 ~ MAP_WARM_Q+TEMP_WET_Q+soil_CN, data=big32test))
+
+(p1 <- gplotRegression(lm(clu.3 ~ WC2.MAP, data=big32test)))
+(p2 <- gplotRegression(lm(clu.3 ~ MAP_WARM_Q, data=big32test)))
+(p3 <- gplotRegression(lm(clu.3 ~ soil_CN, data=big32test)))
+(p4 <- gplotRegression(lm(clu.3 ~ WC2.AI, data=big32test)))
+
+multiplot(p4, p2, p1, p3, cols=2)
+```
+
+
+
+
+
+
+## ----------------Effect of elevated N and P on the diazotrophic community--------------------------------
+
+### Model categorical variables using Adonis
+```{r, cache=T}
+(mod.1 <- adonis(otu_table(physeq.norm) ~ site_code * trt_NNP * trt_NPP, data = get_variable(physeq.norm), 
+                 method = "bray", permutations = 9999))
+(mod.2 <- adonis(otu_table(physeq.norm) ~ trt_NNP + trt_NPP, data = get_variable(physeq.norm), 
+                 method = "bray", permutations = 9999, strata = get_variable(physeq.norm)$site_code))
+```
+
+### beta diversity plots
+
+#### Make constrained ordination (dbRDA) using nutrient treatment factors
+
+##### ~trt_NNP
+```{r, cache=T}
+OTU2plot <- otu_table(physeq.norm) # all samples
+Labels2plot <- get_variable(physeq.norm) # all samples
+  Labels2plot$trt_NNP <- sub("No_nitrogen_addition", "0_No_N_addition", Labels2plot$trt_NNP)
+  Labels2plot$trt_NNP <- as.factor(sub("Nitrogen_addition", "1_N_addition", Labels2plot$trt_NNP))
+plottitle <- "dbRDA ~ trt_NNP; .rel.ab"
+
+dbRDA.obj <- capscale((OTU2plot) ~ trt_NNP, data = Labels2plot, distance = "bray") # horn, bray # ~ live_mass, # trt_NPP for P graph
+
+dbRDA.scores <- scores(dbRDA.obj)
+explained <- eigenvals( dbRDA.obj )/sum( eigenvals( dbRDA.obj ) ) * 100
+explained <- format( round( explained, 1 ), nsmall = 1 )
+
+dbRDA.df <- data.frame(id = row.names(dbRDA.scores$sites), dbRDA.scores$sites, sampleID = Labels2plot$sampleID, Names = Labels2plot$Names, conc = Labels2plot$conc, site_code = Labels2plot$site_code, continent = Labels2plot$continent, country = Labels2plot$country, region = Labels2plot$region, trt = Labels2plot$trt, nutrient_trt = Labels2plot$nutrient_trt, soil_pH = Labels2plot$soil_pH, trt_yn=Labels2plot$trt_yn, trt_NNP = Labels2plot$trt_NNP, trt_NPP = Labels2plot$trt_NPP)
+colnames(dbRDA.df)[c(2,3)] <- c("CAP1", "PC2")
+
+p <- PlotOrd.single.trt(dbRDA.df , components = c("CAP1", "PC2"), 
+             groups = "trt_NNP", 
+             # treatment = "continent", # trt_NNP for double distinction
+             variance = TRUE, connect = FALSE)
+
+p + scale_size_manual(values = c(4, 8)) + ggtitle(plottitle) +
+  xlab(paste("dbRDA 1 (", explained[1], "%)", sep = "")) + 
+  ylab(paste("dbRDA 2 (", explained[2], "%)", sep = ""))
+
+ggsave(paste("fierer.analyses/graphs/plot.dbRDA.trt_NNP.single75",Sys.Date(),"png",sep = "."),width = 7, height = 5, dpi = 300)
+ggsave(paste("fierer.analyses/graphs/plot.dbRDA.trt_NNP.single75",Sys.Date(),"pdf",sep = "."),width = 7, height = 5, dpi = 300)
+```
+
+##### ~trt_NPP
+```{r, cache=T}
+OTU2plot <- otu_table(physeq.norm) # all samples
+Labels2plot <- get_variable(physeq.norm) # all samples
+  Labels2plot$trt_NPP <- sub("0", "No_P_addition", Labels2plot$trt_NPP)
+  Labels2plot$trt_NPP <- as.factor(sub("1", "P_addition", Labels2plot$trt_NPP))
+plottitle <- "dbRDA ~ trt_NPP; .rel.ab"
+dbRDA.obj <- capscale((OTU2plot) ~ trt_NPP, data = Labels2plot, distance = "bray") # horn, bray # ~ live_mass, # trt_NPP for P graph
+
+dbRDA.scores <- scores(dbRDA.obj)
+explained <- eigenvals( dbRDA.obj )/sum( eigenvals( dbRDA.obj ) ) * 100
+explained <- format( round( explained, 1 ), nsmall = 1 )
+
+dbRDA.df <- data.frame(id = row.names(dbRDA.scores$sites), dbRDA.scores$sites, sampleID = Labels2plot$sampleID, Names = Labels2plot$Names, conc = Labels2plot$conc, site_code = Labels2plot$site_code, continent = Labels2plot$continent, country = Labels2plot$country, region = Labels2plot$region, trt = Labels2plot$trt, nutrient_trt = Labels2plot$nutrient_trt, soil_pH = Labels2plot$soil_pH, trt_yn=Labels2plot$trt_yn, trt_NNP = Labels2plot$trt_NNP, trt_NPP = Labels2plot$trt_NPP)
+colnames(dbRDA.df)[c(2,3)] <- c("CAP1", "PC2")
+
+p <- PlotOrd.single.trt(dbRDA.df , components = c("CAP1", "PC2"),
+             groups = "trt_NPP",
+             # treatment = "continent", 
+             variance = TRUE, connect = FALSE)
+
+p + scale_size_manual(values = c(4, 8)) + ggtitle(plottitle) +
+  xlab(paste("dbRDA 1 (", explained[1], "%)", sep = "")) + 
+  ylab(paste("dbRDA 2 (", explained[2], "%)", sep = ""))
+
+ggsave(paste("fierer.analyses/graphs/plot.dbRDA.trt_NPP.single",Sys.Date(),"png",sep = "."),width = 7, height = 5, dpi = 300)
+ggsave(paste("fierer.analyses/graphs/plot.dbRDA.trt_NPP.single",Sys.Date(),"pdf",sep = "."),width = 7, height = 5, dpi = 300)
+```
+
+
+### in which individual sites is the diazo community changing due to N treatment?
+
+#### phyloseq - subsetting sites
+```{r, cache=T}
+labels <- droplevels(get_variable(physeq.norm))
+site.list <- levels(get_variable(physeq.norm)$site_code)
+
+# creating a phyloseq object for every site
+d.subs <- list()
+for(i in site.list){
+  d.subs[[i]] <- subset_samples(physeq.norm, site_code%in% i)
+  assign(paste("physeq.trt.", i, sep = ""), d.subs[[i]])
+}
+
+# creating a list of physeq objects of all sites
+physeq.sites0 <- data.frame(matrix(ncol=1,nrow=0))
+for(i in site.list){
+  physeq.sites0[i,1] <- paste("physeq.trt.", i, sep = "")
+}
+physeq.sites0.list <- physeq.sites0[,1]
+
+otu.trt.bnch.us <- otu_table(physeq.trt.bnch.us)
+meta.trt.bnch.us <- sample_data(physeq.trt.bnch.us) 
+
+otu.trt.burrawan.au <- otu_table(physeq.trt.burrawan.au)
+meta.trt.burrawan.au <- sample_data(physeq.trt.burrawan.au) 
+
+otu.trt.cbgb.us <- otu_table(physeq.trt.cbgb.us)
+meta.trt.cbgb.us <- sample_data(physeq.trt.cbgb.us) 
+
+otu.trt.cdpt.us <- otu_table(physeq.trt.cdpt.us)
+meta.trt.cdpt.us <- sample_data(physeq.trt.cdpt.us) 
+
+otu.trt.cowi.ca <- otu_table(physeq.trt.cowi.ca)
+meta.trt.cowi.ca <- sample_data(physeq.trt.cowi.ca) 
+
+otu.trt.elliot.us <- otu_table(physeq.trt.elliot.us)
+meta.trt.elliot.us <- sample_data(physeq.trt.elliot.us) 
+
+otu.trt.frue.ch <- otu_table(physeq.trt.frue.ch)
+meta.trt.frue.ch <- sample_data(physeq.trt.frue.ch) 
+
+otu.trt.gilb.za <- otu_table(physeq.trt.gilb.za)
+meta.trt.gilb.za <- sample_data(physeq.trt.gilb.za) 
+
+otu.trt.hall.us <- otu_table(physeq.trt.hall.us)
+meta.trt.hall.us <- sample_data(physeq.trt.hall.us) 
+
+otu.trt.hart.us <- otu_table(physeq.trt.hart.us)
+meta.trt.hart.us <- sample_data(physeq.trt.hart.us) 
+
+otu.trt.konz.us <- otu_table(physeq.trt.konz.us)
+meta.trt.konz.us <- sample_data(physeq.trt.konz.us) 
+
+otu.trt.lancaster.uk <- otu_table(physeq.trt.lancaster.uk)
+meta.trt.lancaster.uk <- sample_data(physeq.trt.lancaster.uk) 
+
+otu.trt.look.us <- otu_table(physeq.trt.look.us)
+meta.trt.look.us <- sample_data(physeq.trt.look.us) 
+
+# otu.trt.mtca.au <- otu_table(physeq.trt.mtca.au)
+# meta.trt.mtca.au <- sample_data(physeq.trt.mtca.au)
+
+otu.trt.sage.us <- otu_table(physeq.trt.sage.us)
+meta.trt.sage.us <- sample_data(physeq.trt.sage.us) 
+
+otu.trt.saline.us <- otu_table(physeq.trt.saline.us)
+meta.trt.saline.us <- sample_data(physeq.trt.saline.us) 
+
+otu.trt.shps.us <- otu_table(physeq.trt.shps.us)
+meta.trt.shps.us <- sample_data(physeq.trt.shps.us) 
+
+otu.trt.sier.us <- otu_table(physeq.trt.sier.us)
+meta.trt.sier.us <- sample_data(physeq.trt.sier.us) 
+
+otu.trt.smith.us <- otu_table(physeq.trt.smith.us)
+meta.trt.smith.us <- sample_data(physeq.trt.smith.us) 
+
+otu.trt.spin.us <- otu_table(physeq.trt.spin.us)
+meta.trt.spin.us <- sample_data(physeq.trt.spin.us) 
+
+otu.trt.summ.za <- otu_table(physeq.trt.summ.za)
+meta.trt.summ.za <- sample_data(physeq.trt.summ.za) 
+
+otu.trt.ukul.za <- otu_table(physeq.trt.ukul.za)
+meta.trt.ukul.za <- sample_data(physeq.trt.ukul.za) 
+
+otu.trt.unc.us <- otu_table(physeq.trt.unc.us)
+meta.trt.unc.us <- sample_data(physeq.trt.unc.us) 
+
+otu.trt.valm.ch <- otu_table(physeq.trt.valm.ch)
+meta.trt.valm.ch <- sample_data(physeq.trt.valm.ch)
+```
+
+#### adonis NNP & NPP per site
+```{r, cache=T}
+site.list <- levels(get_variable(physeq.norm)$site_code)
+otu.list <- paste0("otu.trt", ".", site.list)
+meta.list1 <- paste0("meta.trt", ".", site.list, "$trt_NNP")
+meta.list2 <- paste0("meta.trt", ".", site.list, "$trt_NPP")
+
+
+pvs <- data.frame(matrix(ncol=4,nrow=length(site.list)))
+row.names(pvs) <- site.list 
+colnames(pvs) <- c("R2.NNP", "p.value.NNP", "R2.NPP", "p.value.NPP")#, "site_code")
+
+for (i in seq(length(site.list))) { 
+    form <- as.formula(paste(otu.list[i], paste(meta.list1[i], meta.list2[i], sep="*"), sep="~"))
+    a <- (adonis(form, method = "bray", permutations=999,na.rm = TRUE))
+    pvs[i,1]<- a$aov.tab$R2[1]
+    pvs[i,2]<- a$aov.tab$Pr[1]
+    pvs[i,3]<- a$aov.tab$R2[2]
+    pvs[i,4]<- a$aov.tab$Pr[2]
+}
+pvs$p.value.adjust.NNP <- p.adjust(pvs$p.value.NNP, method="BH") #"holm", "hochberg", "hommel", "bonferroni", "BH", "BY"
+pvs$p.value.adjust.NPP <- p.adjust(pvs$p.value.NPP, method="BH") #"holm", "hochberg", "hommel", "bonferroni", "BH", "BY"
+print(pvs)
+```
+
+## treatment ordinations - NNP significant sites
+
+### constrained ordination (dbRDA) - significant / important factors  -  significant sites
+
+####  - konz.us ~ trt_NNP
+```{r, cache=T}
+# if only for one specific - look.us, konz.us
+OTU2plot <- otu_table(physeq.norm)[grep("konz.us", get_variable(physeq.norm)$site_code),]
+Labels2plot <- get_variable(physeq.norm)[grep("konz.us", get_variable(physeq.norm)$site_code),] 
+plottitle <- "dbRDA ~ trt_NNP - konz.us; .rel.ab"
+
+dbRDA.obj <- capscale((OTU2plot) ~ trt_NNP, data = Labels2plot, distance = "bray") # horn, bray # ~ live_mass, #OTU2plot #Labels2plot
+
+dbRDA.scores <- scores(dbRDA.obj)
+explained <- eigenvals( dbRDA.obj )/sum( eigenvals( dbRDA.obj ) ) * 100
+explained <- format( round( explained, 1 ), nsmall = 1 )
+
+dbRDA.df <- data.frame(id = row.names(dbRDA.scores$sites), dbRDA.scores$sites, sampleID = Labels2plot$sampleID, Names = Labels2plot$Names, conc = Labels2plot$conc, site_code = Labels2plot$site_code, continent = Labels2plot$continent, country = Labels2plot$country, region = Labels2plot$region, trt = Labels2plot$trt, nutrient_trt = Labels2plot$nutrient_trt, soil_pH = Labels2plot$soil_pH, trt_yn=Labels2plot$trt_yn, trt_NNP = Labels2plot$trt_NNP, trt_NPP = Labels2plot$trt_NPP)
+colnames(dbRDA.df)[c(2,3)] <- c("PC1", "PC2")
+p <- PlotOrd.single(dbRDA.df , components = c("PC1", "PC2"), groups = "trt_NNP", treatment = "site_code", variance = TRUE, connect = FALSE)
+
+p + scale_size_manual(values = c(4, 8)) + ggtitle(plottitle) +
+  xlab(paste("dbRDA 1 (", explained[1], "%)", sep = "")) + 
+  ylab(paste("dbRDA 2 (", explained[2], "%)", sep = "")) #+
+  # facet_wrap(~ site_code, scale="free")
+```
+
+####  - look.us ~ trt_NNP
+```{r, cache=T}
+# if only for one specific - look.us, konz.us
+OTU2plot <- otu_table(physeq.norm)[grep("look.us", get_variable(physeq.norm)$site_code),]
+Labels2plot <- get_variable(physeq.norm)[grep("look.us", get_variable(physeq.norm)$site_code),]
+plottitle <- "dbRDA ~ trt_NNP - look.us; .rel.ab"
+
+dbRDA.obj <- capscale((OTU2plot) ~ trt_NNP, data = Labels2plot, distance = "bray") # horn, bray # ~ live_mass, #OTU2plot #Labels2plot
+
+dbRDA.scores <- scores(dbRDA.obj)
+explained <- eigenvals( dbRDA.obj )/sum( eigenvals( dbRDA.obj ) ) * 100
+explained <- format( round( explained, 1 ), nsmall = 1 )
+
+dbRDA.df <- data.frame(id = row.names(dbRDA.scores$sites), dbRDA.scores$sites, sampleID = Labels2plot$sampleID, Names = Labels2plot$Names, conc = Labels2plot$conc, site_code = Labels2plot$site_code, continent = Labels2plot$continent, country = Labels2plot$country, region = Labels2plot$region, trt = Labels2plot$trt, nutrient_trt = Labels2plot$nutrient_trt, soil_pH = Labels2plot$soil_pH, trt_yn=Labels2plot$trt_yn, trt_NNP = Labels2plot$trt_NNP, trt_NPP = Labels2plot$trt_NPP)
+colnames(dbRDA.df)[c(2,3)] <- c("PC1", "PC2")
+p <- PlotOrd.single.trt(dbRDA.df , components = c("PC1", "PC2"), groups = "trt_NNP", treatment = "site_code", variance = TRUE, connect = FALSE)
+
+p + scale_size_manual(values = c(4, 8)) + ggtitle(plottitle) +
+  xlab(paste("dbRDA 1 (", explained[1], "%)", sep = "")) + 
+  ylab(paste("dbRDA 2 (", explained[2], "%)", sep = "")) #+
+  # facet_wrap(~ site_code, scale="free")
+```
+
+### taxonomy bar plots - significant sites
+
+#### phyloseq - preparing data for modelling & plotting
+```{r, cache=T}
+# only significant N-treatment sites "look.us", "konz.us"
+(physeq.sign <- subset_samples(physeq.norm, site_code%in%(c("look.us", "konz.us"))))
+  (physeq.sign <- prune_taxa(taxa_sums(physeq.sign) > 0, physeq.sign))
+
+otu.sign <- as.data.frame(t(otu_table(physeq.sign)))
+  otu.sign$Total <- rowSums(otu.sign)
+  otu.sign$OTU <- rownames(otu.sign)
+
+meta.sign <- get_variable(physeq.sign) # for merge() in next chunk
+  meta.sign$Name <- row.names(meta.sign) 
+```
+
+#### base for stacked bar charts & heatmaps @ taxonomic level
+```{r, cache=T}
+Taxonomy <- cbind(as.data.frame(tax_table(physeq.sign)), otu.sign) # combine data.frames (OTU/Taxonomy & Sample Abundance; merge doesnt work on such large dbs)
+
+Taxonomy <- melt(Taxonomy, id = c("OTU", "Total", "Domain", "Phylum", "Class", "Order", "Family", "Genus", "Zehr.Cluster", "Zehr.Subcluster"), variable.name = 'Name', value.name = 'Freq', na.rm = TRUE) # --> jede OTU in jedem sample einen eintrag mit frequenz
+
+Taxonomy <- merge(Taxonomy, meta.sign, by="Name")
+
+ab.Taxonomy.class <- TaxThresh(Taxonomy, tax.level = "Class", thresh = 0.2) # get ONLY abundant taxonomy
+ab.Taxonomy.order <- TaxThresh(Taxonomy, tax.level = "Order", thresh = 0.2) # get ONLY abundant taxonomy
+ab.Taxonomy.family <- TaxThresh(Taxonomy, tax.level = "Family", thresh = 0.2) # get ONLY abundant taxonomy
+ab.Taxonomy.genus <- TaxThresh(Taxonomy, tax.level = "Genus", thresh = 0.2) # get ONLY abundant taxonomy
+ab.Taxonomy.z.cluster <- TaxThresh(Taxonomy, tax.level = "Zehr.Cluster", thresh = 0.2) # get ONLY abundant taxonomy
+ab.Taxonomy.z.subcluster <- TaxThresh(Taxonomy, tax.level = "Zehr.Subcluster", thresh = 0.2) # get ONLY abundant taxonomy
+```
+
+#### bar plots
+
+##### --> stacked bar charts & heatmap @ Class level
+```{r, cache=T}
+## prepare data for plotting
+ab.Taxonomy <- ab.Taxonomy.class
+#class
+tax.data2plot <- data.frame(Sample = ab.Taxonomy$Name, Freq = ab.Taxonomy$Freq, Taxa = ab.Taxonomy$Class, Zehr.Cluster = ab.Taxonomy$Zehr.Cluster, Zehr.Subcluster = ab.Taxonomy$Zehr.Subcluster, site_code = ab.Taxonomy$site_code, continent = ab.Taxonomy$continent, elevation = ab.Taxonomy$elevation, trt_NNP = ab.Taxonomy$trt_NNP)
+
+tax.data2plot <- ddply(tax.data2plot, c("Taxa", "Sample", "site_code", "continent", "elevation", "trt_NNP"), summarise, Freq = sum(Freq)) # eintr?ge reduziert auf einen eintrag pro Class und Sample # wurde ev.schon durch merge_samples() in phyloseq gemacht
+
+# for stacked bar charts
+  ## adds relative abundance $Sample
+for (i in 1:nrow(tax.data2plot)) {
+  sample.sum <- sum(tax.data2plot$Freq[tax.data2plot$Sample == tax.data2plot$Sample[i]])
+  tax.data2plot$Rel.Ab[i] <- tax.data2plot$Freq[i] / sample.sum * 100}
+
+  ## adds relative abundance $trt_NNP
+for (i in 1:nrow(tax.data2plot)) {
+  sample.sum <- sum(tax.data2plot$Freq[tax.data2plot$trt_NNP == tax.data2plot$trt_NNP[i]])
+  tax.data2plot$NNP.Rel.Ab[i] <- tax.data2plot$Freq[i] / sample.sum * 100}
+
+  ## plot stacked bar chart per NNP
+rel.bar <- qplot(x=trt_NNP,data=tax.data2plot,geom="bar",weight=NNP.Rel.Ab,fill=Taxa, main="rel. ab. Class level per site") + scale_fill_manual(values=colPalette03) #rel. Abundance
+rel.bar + facet_wrap(~site_code+trt_NNP, ncol=2, scale="free")
+
+  ## plot stacked bar chart per SAMPLE
+rel.bar <- qplot(x=Sample,data=tax.data2plot,geom="bar",weight=Rel.Ab,fill=Taxa, main="rel. ab. Class level per site") +
+  scale_fill_manual(values=colPalette03) +
+  scale_y_continuous(expand = c(0,1)) + # reduced space between bars and x-axis
+  theme(axis.text.x = element_text(angle = 30, hjust = 1)) # rotating the x-axis labels
+rel.bar  + facet_wrap(~site_code+trt_NNP, ncol=2, scale="free")
+```
+
+##### --> stacked bar charts & heatmap @ Order level
+```{r, cache=T}
+## prepare data for plotting
+ab.Taxonomy <- ab.Taxonomy.order
+#class
+tax.data2plot <- data.frame(Sample = ab.Taxonomy$Name, Freq = ab.Taxonomy$Freq, Taxa = ab.Taxonomy$Order, Class = ab.Taxonomy$Class, Zehr.Cluster = ab.Taxonomy$Zehr.Cluster, Zehr.Subcluster = ab.Taxonomy$Zehr.Subcluster, site_code = ab.Taxonomy$site_code, continent = ab.Taxonomy$continent, elevation = ab.Taxonomy$elevation, trt_NNP = ab.Taxonomy$trt_NNP)
+
+tax.data2plot <- ddply(tax.data2plot, c("Taxa", "Sample", "site_code", "continent", "elevation", "trt_NNP"), summarise, Freq = sum(Freq)) # eintr?ge reduziert auf einen eintrag pro Class und Sample # wurde ev.schon durch merge_samples() in phyloseq gemacht
+
+# for stacked bar charts
+  ## adds relative abundance $Sample
+for (i in 1:nrow(tax.data2plot)) {
+  sample.sum <- sum(tax.data2plot$Freq[tax.data2plot$Sample == tax.data2plot$Sample[i]])
+  tax.data2plot$Rel.Ab[i] <- tax.data2plot$Freq[i] / sample.sum * 100}
+
+  ## adds relative abundance $trt_NNP
+for (i in 1:nrow(tax.data2plot)) {
+  sample.sum <- sum(tax.data2plot$Freq[tax.data2plot$trt_NNP == tax.data2plot$trt_NNP[i]])
+  tax.data2plot$NNP.Rel.Ab[i] <- tax.data2plot$Freq[i] / sample.sum * 100}
+
+  ## plot stacked bar chart per NNP
+rel.bar <- qplot(x=trt_NNP,data=tax.data2plot,geom="bar",weight=NNP.Rel.Ab,fill=Taxa, main="rel. ab. Order level per site") + scale_fill_manual(values=colPalette03) #rel. Abundance
+rel.bar + facet_wrap(~site_code+trt_NNP, ncol=2, scale="free")
+
+  ## plot stacked bar chart per SAMPLE
+rel.bar <- qplot(x=Sample,data=tax.data2plot,geom="bar",weight=Rel.Ab,fill=Taxa, main="rel. ab. Order level per site") +
+  scale_fill_manual(values=colPalette03) +
+  scale_y_continuous(expand = c(0,1)) + # reduced space between bars and x-axis
+  theme(axis.text.x = element_text(angle = 30, hjust = 1)) # rotating the x-axis labels
+rel.bar  + facet_wrap(~site_code+trt_NNP, ncol=2, scale="free")
+```
+
+##### --> stacked bar charts & heatmap @ Family level
+```{r, cache=T}
+## prepare data for plotting
+ab.Taxonomy <- ab.Taxonomy.family
+#class
+tax.data2plot <- data.frame(Sample = ab.Taxonomy$Name, Freq = ab.Taxonomy$Freq, Taxa = ab.Taxonomy$Family, Class = ab.Taxonomy$Class, Order = ab.Taxonomy$Order, Zehr.Cluster = ab.Taxonomy$Zehr.Cluster, Zehr.Subcluster = ab.Taxonomy$Zehr.Subcluster, site_code = ab.Taxonomy$site_code, continent = ab.Taxonomy$continent, elevation = ab.Taxonomy$elevation, trt_NNP = ab.Taxonomy$trt_NNP)
+
+tax.data2plot <- ddply(tax.data2plot, c("Taxa", "Sample", "site_code", "continent", "elevation", "trt_NNP"), summarise, Freq = sum(Freq)) # eintr?ge reduziert auf einen eintrag pro Class und Sample # wurde ev.schon durch merge_samples() in phyloseq gemacht
+
+# for stacked bar charts
+  ## adds relative abundance $Sample
+for (i in 1:nrow(tax.data2plot)) {
+  sample.sum <- sum(tax.data2plot$Freq[tax.data2plot$Sample == tax.data2plot$Sample[i]])
+  tax.data2plot$Rel.Ab[i] <- tax.data2plot$Freq[i] / sample.sum * 100}
+
+  ## adds relative abundance $trt_NNP
+for (i in 1:nrow(tax.data2plot)) {
+  sample.sum <- sum(tax.data2plot$Freq[tax.data2plot$trt_NNP == tax.data2plot$trt_NNP[i]])
+  tax.data2plot$NNP.Rel.Ab[i] <- tax.data2plot$Freq[i] / sample.sum * 100}
+
+  ## plot stacked bar chart per NNP
+rel.bar <- qplot(x=trt_NNP,data=tax.data2plot,geom="bar",weight=NNP.Rel.Ab,fill=Taxa, main="rel. ab. Family level per site") + scale_fill_manual(values=colPalette03) #rel. Abundance
+rel.bar + facet_wrap(~site_code+trt_NNP, ncol=2, scale="free")
+
+  ## plot stacked bar chart per SAMPLE
+rel.bar <- qplot(x=Sample,data=tax.data2plot,geom="bar",weight=Rel.Ab,fill=Taxa, main="rel. ab. Family level per site") +
+  scale_fill_manual(values=colPalette03) +
+  scale_y_continuous(expand = c(0,1)) + # reduced space between bars and x-axis
+  theme(axis.text.x = element_text(angle = 30, hjust = 1)) # rotating the x-axis labels
+rel.bar  + facet_wrap(~site_code+trt_NNP, ncol=2, scale="free")
+```
+
+##### --> stacked bar charts & heatmap @ Zehr.Cluster level
+```{r, cache=T}
+## prepare data for plotting
+ab.Taxonomy <- ab.Taxonomy.z.cluster
+#Zehr.Cluster
+tax.data2plot <- data.frame(Sample = ab.Taxonomy$Name, Freq = ab.Taxonomy$Freq, Taxa = ab.Taxonomy$Zehr.Cluster, Zehr.Subcluster = ab.Taxonomy$Zehr.Subcluster, site_code = ab.Taxonomy$site_code, continent = ab.Taxonomy$continent, elevation = ab.Taxonomy$elevation, trt_NNP = ab.Taxonomy$trt_NNP)
+
+tax.data2plot <- ddply(tax.data2plot, c("Taxa", "Sample", "site_code", "continent", "elevation", "trt_NNP"), summarise, Freq = sum(Freq)) # eintr?ge reduziert auf einen eintrag pro Class und site_code # wurde ev.schon durch merge_samples() in phyloseq gemacht
+
+# for stacked bar charts
+  ## adds relative abundance $Sample
+for (i in 1:nrow(tax.data2plot)) {
+  sample.sum <- sum(tax.data2plot$Freq[tax.data2plot$Sample == tax.data2plot$Sample[i]])
+  tax.data2plot$Rel.Ab[i] <- tax.data2plot$Freq[i] / sample.sum * 100}
+
+  ## adds relative abundance $trt_NNP
+for (i in 1:nrow(tax.data2plot)) {
+  sample.sum <- sum(tax.data2plot$Freq[tax.data2plot$trt_NNP == tax.data2plot$trt_NNP[i]])
+  tax.data2plot$NNP.Rel.Ab[i] <- tax.data2plot$Freq[i] / sample.sum * 100}
+
+  ## plot stacked bar chart per NNP
+rel.bar <- qplot(x=trt_NNP,data=tax.data2plot,geom="bar",weight=NNP.Rel.Ab,fill=Taxa, main="rel. ab. Zehr.Cluster level per site") + scale_fill_manual(values=colPalette03) #rel. Abundance
+rel.bar + facet_wrap(~site_code+trt_NNP, ncol=2, scale="free")
+
+  ## plot stacked bar chart per SAMPLE
+rel.bar <- qplot(x=Sample,data=tax.data2plot,geom="bar",weight=Rel.Ab,fill=Taxa, main="rel. ab. Zehr.Cluster level per site") +
+  scale_fill_manual(values=colPalette03) +
+  scale_y_continuous(expand = c(0,1)) + # reduced space between bars and x-axis
+  theme(axis.text.x = element_text(angle = 30, hjust = 1)) # rotating the x-axis labels
+rel.bar  + facet_wrap(~site_code+trt_NNP, ncol=2, scale="free")
+```
+
+##### --> stacked bar charts & heatmap @ Zehr.Subcluster level
+```{r, cache=T}
+## prepare data for plotting
+ab.Taxonomy <- ab.Taxonomy.z.subcluster
+#class
+tax.data2plot <- data.frame(Sample = ab.Taxonomy$Name, Freq = ab.Taxonomy$Freq, Taxa = ab.Taxonomy$Zehr.Subcluster, Zehr.Cluster = ab.Taxonomy$Zehr.Cluster, site_code = ab.Taxonomy$site_code, continent = ab.Taxonomy$continent, elevation = ab.Taxonomy$elevation, trt_NNP = ab.Taxonomy$trt_NNP)
+
+tax.data2plot <- ddply(tax.data2plot, c("Taxa", "Sample", "site_code", "continent", "elevation", "trt_NNP"), summarise, Freq = sum(Freq)) # eintr?ge reduziert auf einen eintrag pro Class und site_code # wurde ev.schon durch merge_samples() in phyloseq gemacht
+
+# for stacked bar charts
+  ## adds relative abundance $Sample
+for (i in 1:nrow(tax.data2plot)) {
+  sample.sum <- sum(tax.data2plot$Freq[tax.data2plot$Sample == tax.data2plot$Sample[i]])
+  tax.data2plot$Rel.Ab[i] <- tax.data2plot$Freq[i] / sample.sum * 100}
+
+  ## adds relative abundance $trt_NNP
+for (i in 1:nrow(tax.data2plot)) {
+  sample.sum <- sum(tax.data2plot$Freq[tax.data2plot$trt_NNP == tax.data2plot$trt_NNP[i]])
+  tax.data2plot$NNP.Rel.Ab[i] <- tax.data2plot$Freq[i] / sample.sum * 100}
+
+  ## plot stacked bar chart per NNP
+rel.bar <- qplot(x=trt_NNP,data=tax.data2plot,geom="bar",weight=NNP.Rel.Ab,fill=Taxa, main="rel. ab. Zehr.Subcluster level per site") + scale_fill_manual(values=colPalette03) #rel. Abundance
+rel.bar + facet_wrap(~site_code+trt_NNP, ncol=2, scale="free")
+
+  ## plot stacked bar chart per SAMPLE
+rel.bar <- qplot(x=Sample,data=tax.data2plot,geom="bar",weight=Rel.Ab,fill=Taxa, main="rel. ab. Zehr.Subcluster level per site") +
+  scale_fill_manual(values=colPalette03) +
+  scale_y_continuous(expand = c(0,1)) + # reduced space between bars and x-axis
+  theme(axis.text.x = element_text(angle = 30, hjust = 1)) # rotating the x-axis labels
+rel.bar  + facet_wrap(~site_code+trt_NNP, ncol=2, scale="free")
+```
+
+
+# end

@@ -1,0 +1,160 @@
+---
+title: "STAMPR"
+output: html_document
+---
+
+# libraries
+```{r}
+library(vegan)
+library(magrittr)
+library(phyloseq)
+library(ggplot2)
+library(microbiome)
+library(reshape2)
+library(plyr)
+library(DESeq2)
+library(ggpomological)
+library(ggrepel)
+library(dplyr)
+library(rcompanion)
+library(fda)
+library(stringr)
+```
+
+# functions
+```{r}
+STAMPR <- function(physeq_obj, rank = "Phylum", sig_pairs, threshold = 0.005) {
+  # run a STAMP-like analysis: compare relative abundance differences using two-way analysis, then run a post-hoc test and correct for multiple comparisons
+  
+  physeq_glom <- tax_glom(physeq_obj,
+                          rank,
+                          NArm = TRUE)
+  physeq_glom_rel <-
+    transform_sample_counts(physeq_glom, function(x)
+      x / sum(x))
+  
+  # group dataframe by rank, calculate median rel. abundance and keep taxa above threshold
+  physeq_glom_rel %>% 
+    psmelt %>% 
+    group_by_(rank) %>%
+    summarise(median = median(Abundance)) %>% 
+    filter(median >= threshold) %>% 
+    pull(1) %>% 
+    as.character() ->
+    Taxa2test
+  
+  physeq_glom_rel_abund <- prune_taxa(tax_table(physeq_glom_rel)[, rank] %in% Taxa2test, physeq_glom_rel)
+  
+  taxa_test_results <-
+    bind_cols(Phylum = tax_table(physeq_glom_rel_abund)[, rank],
+              as.data.frame(matrix(
+                NA,
+                nrow = ntaxa(physeq_glom_rel_abund),
+                ncol = length(sig_pairs) + 6 # sig_pairs is taken from pairwise adonis
+              )))
+  colnames(taxa_test_results) <-
+    c(
+      rank,
+      "site_code - P",
+      "site_code - Eta",
+      "trt_NNP - P",
+      "trt_NNP - Eta",
+      "site_codeXtrt_NNP - P",
+      "site_codeXtrt_NNP - Eta",
+      sig_pairs
+    )
+  
+  taxa_test_stats <-
+    bind_cols(Phylum = tax_table(physeq_glom_rel_abund)[, rank],
+              as.data.frame(matrix(
+                NA,
+                nrow = ntaxa(physeq_glom_rel_abund),
+                ncol = (length(sig_pairs) * 5) # sig_pairs is taken from pairwise adonis
+              )))
+  colnames(taxa_test_stats) <-
+    c(rank, c(rbind(
+      t(str_split_fixed(sig_pairs, " vs ", n = 2)), matrix(rep(
+        c("Estimate diff.", "low CI", "high CI"), length(sig_pairs)
+      ), ncol = length(sig_pairs))
+    ))) # this is ugly but it works well, basically c() flattens a matrix
+  
+  for (phy_id in seq(ntaxa(physeq_glom_rel_abund))) {
+    data2test <-
+      bind_cols(Abundance = as(otu_table(physeq_glom_rel_abund)[, phy_id] * 100, "numeric"),
+                as(sample_data(physeq_glom_rel_abund), "data.frame"))
+    # kruskal.test(Abundance ~ Climate.Source, data = data2test)
+    print(tax_table(physeq_glom_rel_abund)[phy_id, rank])
+    print(SRH_mod <-
+            scheirerRayHare(Abundance ~ site_code + trt_NNP, data = data2test))
+    taxa_test_results[phy_id, c(2, 4, 6)] <-
+      SRH_mod$p.value[1:3] # p values
+    taxa_test_results[phy_id, c(3, 5, 7)] <-
+      SRH_mod$`Sum Sq`[1:3] / sum(SRH_mod$`Sum Sq`) # Eta (effect size)
+    for (pair in seq(length(sig_pairs))) {
+      pair2test <- sig_pairs[pair]# unlist(str_split(sig_pairs[pair], " vs "))
+      possibleError <- tryCatch(
+        wilcox_mod <-
+          wilcox.test(
+           Abundance ~ trt_NNP, # ~ trt_NNP / as.numeric(Abundance)
+            data = data2test,
+           subset = site_code %in% pair2test, # for subsetting within the pair2test
+            conf.int = TRUE,
+            exact = FALSE
+          ),
+        error = function(e) e
+      ) # AKA Mann Whitney
+      if (inherits(possibleError, 'error')) {
+        print(possibleError)
+        taxa_test_results[phy_id, pair + 7] <- NA
+      } else {
+        print(wilcox_mod)
+        taxa_test_results[phy_id, pair + 7] <- wilcox_mod$p.value
+        taxa_test_stats[phy_id, (pair - 1) * 5 + 2] <-
+          mean(data2test[data2test$trt_NNP %in% pair2test[1],]$Abundance)
+        taxa_test_stats[phy_id, (pair - 1) * 5 + 3] <-
+          mean(data2test[data2test$trt_NNP %in% pair2test[2],]$Abundance)
+        taxa_test_stats[phy_id, (pair - 1) * 5 + 4] <-
+          wilcox_mod$estimate
+        taxa_test_stats[phy_id, (pair - 1) * 5 + c(5, 6)] <-
+          wilcox_mod$conf.int[c(1, 2)]
+      }
+    }
+  }
+  
+  # Correct for FDR for each comparison pair
+  for (pair in seq(2, ncol(taxa_test_results))) {
+    # print(pair)
+    taxa_test_results[, pair] <-
+      p.adjust(pull(taxa_test_results[, pair]) , method = "BH") # Benjamini, Y., and Yekutieli, D. (2001). The control of the false discovery rate in multiple testing under dependency. Annals of Statistics 29, 1165–1188.
+    # qvalue(p = pull(taxa_test_results[, pair]))
+  }
+  
+  write.csv(taxa_test_results, file = paste0("fierer.analyses/differential.OTUs/STAMPR/", deparse(substitute(physeq_obj)), "_", rank, "_Pvals", ".", Sys.Date(), ".csv"))
+  write.csv(taxa_test_stats, file = paste0("fierer.analyses/differential.OTUs/STAMPR/", deparse(substitute(physeq_obj)), "_", rank, "_CI", ".", Sys.Date(), ".csv"))
+  Taxa_tests <- list(taxa_test_results, taxa_test_stats)
+  return(Taxa_tests)
+}
+```
+
+### creating phyloseq objects - OTU level
+```{r}
+# non-normalized data set - all samples
+otu.physq <- otu_table(OTU.mat.abs, taxa_are_rows=FALSE)
+sam.physq <- sample_data(labels) 
+tax.physq <- tax_table(taxonomy)
+(physeq.abs <- phyloseq(otu.physq, sam.physq, tax.physq))
+```
+
+#### Test differences between samples on the phylum level
+```{r test tax.level, fig.width=15, fig.height=10, cache=T}
+# define significant sites to check
+sig_pairs = c("konz.us", "look.us") # significant differences between N treatment and controls could be only detected in these two sites (based on adonis tests per site)
+
+Taxa_tests_phylum <- STAMPR(physeq.abs, "Phylum", sig_pairs) 
+Taxa_tests_class <- STAMPR(physeq.abs, "Class", sig_pairs)
+Taxa_tests_order <- STAMPR(physeq.abs, "Order", sig_pairs)
+Taxa_tests_family <- STAMPR(physeq.abs, "Family", sig_pairs)
+Taxa_tests_genus <- STAMPR(physeq.abs, "Genus", sig_pairs) #, change threshold to 0.002
+```
+
+# END
