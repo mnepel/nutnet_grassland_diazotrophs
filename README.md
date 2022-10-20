@@ -6,7 +6,8 @@ This is the repository for R scripts used to study the microbial communities hav
 
 The raw sequencing reads were deposited in the NCBI Short Read Archive under the BioProject accession number PRJNA777635.
 
-# Citation
+
+# citation
 
 If you use part of this script, please cite:
 
